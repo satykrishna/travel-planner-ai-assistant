@@ -1,4 +1,4 @@
-# LangGraph Travel Planner Notebook
+# Travel Planner AI Assistant
 
 A notebook-first, multi-agent travel planner built with LangGraph, LangChain, OpenAI, Tavily, and SerpAPI. It classifies travel requests, dispatches flight/hotel and destination-research specialists, executes structured tool calls in normal Python graph nodes, and synthesizes their findings.
 
@@ -49,8 +49,8 @@ The main agent dependencies in `requirements.txt` are pinned to versions observe
 ## Setup
 
 ```bash
-git clone https://github.com/satykrishna/langgraph-travel-planner-notebook.git
-cd langgraph-travel-planner-notebook
+git clone https://github.com/satykrishna/travel-planner-ai-assistant.git
+cd travel-planner-ai-assistant
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
