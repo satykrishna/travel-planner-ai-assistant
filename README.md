@@ -1,52 +1,76 @@
 # Travel Planner AI Assistant
 
-A notebook-first, multi-agent travel planner built with LangGraph, LangChain, OpenAI, Tavily, and SerpAPI. It classifies travel requests, dispatches flight/hotel and destination-research specialists, executes structured tool calls in normal Python graph nodes, and synthesizes their findings.
+I started this project in a Jupyter notebook to explore how specialist AI agents could work together on a travel request. It has since grown into a web app: a place to describe a trip, explore flight and hotel options, and get an itinerary shaped around your interests.
 
-The source is [Multi_Agent_Travel_Planner.ipynb](Multi_Agent_Travel_Planner.ipynb). The repository also includes a FastAPI web app with a browser interface and Vercel configuration.
+I’m building it in public and looking for feedback on both the planning experience and the usefulness of the results.
 
-## What it does
+**[Try the travel planner](https://travel-planner-ai-assistant.vercel.app)** · [Original notebook](Multi_Agent_Travel_Planner.ipynb)
 
-- Searches Google Flights through SerpAPI, applies maximum-stop constraints, and reports the number of returned flight options.
-- Searches Google Hotels or vacation rentals, validates stay dates and guest counts, and sorts returned properties by price by default.
-- Delegates detailed itineraries to a deep research agent with web search.
-- Uses `Send` to dispatch one or both specialist subgraphs in parallel.
-- Keeps separate HumanMessage, AIMessage, and ToolMessage histories for each specialist, including tool-call IDs.
-- Checks destination-local flight arrival dates against quoted hotel dates before synthesis.
-- Prints a readable final answer and a trace of routing decisions and tool calls.
+## Take it for a spin
 
-## Workflow
+You can open the example plan without an invitation. For live planning, ask me for an invitation code, then open **Settings → Invitation code** in the sidebar. The code is used for planning requests and is kept out of saved preferences and plan downloads.
+
+Start with a destination. Add a departure city, dates, travelers, and a budget if you have them. Pick the interests that matter to you, then tell the planner what would make the trip special.
+
+For example:
+
+> Five days in Kyoto for two adults. We like local food, small neighborhoods, and a relaxed pace. Include places to stay and leave time to explore on our own.
+
+Your name, interests, draft, and last five completed plans stay in your browser. You can reopen a plan or download it as JSON. There is no account sync yet, so clearing browser storage removes those saved plans. Please keep contact details, personal IDs, and payment information out of trip requests.
+
+## What I’m building
+
+The experience is meant to feel like a personal travel workspace:
+
+- A guided trip builder, with room for preferences that do not fit a form field.
+- Flight and hotel research when enough details are available.
+- Destination research and an itinerary matched to the trip.
+- Progress updates while research runs, with technical execution details kept off the page.
+- A Microsoft-inspired blue theme, sidebar settings, and a mobile layout.
+
+The app researches options. It does not book trips, take payments, or confirm reservations. Prices and availability need to be checked with the provider before booking.
+
+## How the agents work together
+
+A LangGraph workflow routes each request to a flight/hotel specialist, a destination-research specialist, or both. Their findings feed a final synthesis step.
 
 ```mermaid
-flowchart TD
-    START --> Classifier
-    Classifier -->|Send: flights / hotels| Search
-    Classifier -->|Send: research / itinerary| Scout
-    subgraph Search[Search specialist]
-        SearchModel[search_agent_node] -->|tool calls| SearchTools[search_tool_node]
-        SearchTools --> SearchModel
-    end
-    subgraph Scout[Travel scout specialist]
-        ScoutModel[travel_scout_agent_node] -->|tool calls| ScoutTools[travel_scout_tool_node]
-        ScoutTools --> ScoutModel
-    end
-    Search -->|completed findings| Synthesis
-    Scout -->|completed findings| Synthesis
-    Synthesis --> END
+flowchart LR
+    Request[Trip request] --> Input[Input guardrails]
+    Input --> Router[Travel scope and routing]
+    Router --> Flights[Flights and stays]
+    Router --> Research[Destination research]
+    Flights --> Synthesis[Combine findings]
+    Research --> Synthesis
+    Synthesis --> Output[Output guardrails]
+    Output --> Plan[Travel plan]
 ```
 
-The classifier chooses `search_agent`, `travel_scout_agent`, or both. The specialist subgraphs finish their complete model/tool loops before the parent merges results and runs synthesis once. A request selecting only one specialist does not wait for an unselected branch.
+OpenAI powers the models. SerpAPI supplies Google Flights and Google Hotels searches; Tavily supplies web research. FastAPI serves the app, and Vercel hosts it.
 
-Tools are advertised with `llm.bind_tools(...)`; this only supplies their schemas. The executor nodes resolve tool-name strings through allowlisted dictionaries, call `.invoke(tool_call['args'])`, and create matching `ToolMessage` objects. These executor nodes are ordinary graph functions, not `ToolNode` instances.
+The research loop has an explicit tool allowlist. The web runtime does not expose a shell, filesystem, arbitrary URL fetcher, booking tool, or payment tool to the agents. The original notebook is still in the repository, but web requests run the Python modules in `planner/`.
 
-## Requirements
+## The boundaries I’ve put around the beta
 
-- Python 3.11 or 3.12; the original notebook was developed in PyCharm with Python 3.12.
-- An OpenAI API key, a Tavily API key, and a SerpAPI key with access to Google Flights / Google Hotels searches.
-- JupyterLab or PyCharm with notebook support.
+Sharing an AI app also means managing misuse and API spending. These controls are implemented in the app:
 
-The main agent dependencies in `requirements.txt` are pinned to versions observed in the source notebook's working environment. Model calls and search calls may incur charges or consume provider quotas.
+- **Invitation-only planning:** the server checks the access key before reading a planning request or starting paid work. Production requires a key of at least 32 characters.
+- **Input and output moderation:** OpenAI’s `omni-moderation-latest` checks the request and final answer. A failed or unavailable check stops delivery.
+- **Local pattern checks:** Unicode-normalized regex rules catch common instruction overrides, prompt extraction, credentials, and several personal-data formats. Configured secrets and patterned PII are removed from final answers.
+- **Travel-only scope:** the existing routing model also checks whether the request belongs in this app. There is no model-based NER or separate generative guardrail-model call.
+- **Untrusted sources:** agents receive a security policy, and recognizable instruction injections are removed from retrieved text before it is used as research data.
+- **Bounded research:** a request has at most 16 model invocations, eight search calls, three tool calls per batch, 2,000 output tokens per planner-model call, 50,000 characters of model context, and 180 seconds overall. Planner-model and moderation retries are disabled.
+- **Browser protections:** request-size checks, cross-site submission checks, a restrictive Content Security Policy, and text-based Markdown rendering reduce the browser attack surface.
 
-## Setup
+No Redis or extra database account is required. Each worker also keeps best-effort limits of three plans per UTC minute, 30 per UTC day, and two concurrent plans. **These counters reset when a worker restarts and are independent across Vercel instances. They are not an app-wide spending cap.**
+
+When a trip exceeds its research allowance, the app explains how to simplify it and whether it can be retried now or after the current worker’s quota resets. Waiting alone will not make an overly broad request smaller.
+
+These layers reduce risk; they do not solve prompt injection or recognize every form of personal data. The shared invitation code can also be redistributed. I’m keeping this as a limited beta while I learn from real use. Individual sign-in and durable per-user quotas would be needed for broader access.
+
+## Running my setup locally
+
+Use Python 3.12 and start from the repository root:
 
 ```bash
 git clone https://github.com/satykrishna/travel-planner-ai-assistant.git
@@ -57,155 +81,27 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-On Windows, activate with `.venv\Scripts\activate` instead. Add your own values to `.env`:
+Fill in the three provider keys in your local `.env`:
 
-```dotenv
-OPENAI_API_KEY=your_openai_key
-TAVILY_API_KEY=your_tavily_key
-SERPAPI_API_KEY=your_serpapi_key
-```
+- `OPENAI_API_KEY` — [OpenAI API keys](https://platform.openai.com/api-keys).
+- `TAVILY_API_KEY` — [Tavily dashboard](https://app.tavily.com).
+- `SERPAPI_API_KEY` — [SerpAPI key](https://serpapi.com/manage-api-key).
 
-Run the kernel from this repository's root so the `.env` cell can locate the file. Existing process environment variables take precedence. Restart the kernel after changing previously loaded values. Never commit `.env`, credentials, or sensitive notebook output.
+Generate your own invitation code with `openssl rand -hex 32` and put it in `.env` as `APP_ACCESS_TOKEN`. It is optional locally and required on Vercel. Keep `.env` out of Git; the repository includes only empty placeholders.
 
 ```bash
-jupyter lab Multi_Agent_Travel_Planner.ipynb
+uvicorn app:app --reload
 ```
 
-In PyCharm, open the repository, select its Python interpreter, and open the notebook.
+Open **http://127.0.0.1:8000**. Provider calls can consume credits or incur charges. Set `PLANNING_ENABLED=false` and restart to pause live planning.
 
-## Running the notebook
+For the original experiment, run `jupyter lab Multi_Agent_Travel_Planner.ipynb`. Its live-example flags are disabled by default so opening and running definitions does not intentionally launch a trip search.
 
-1. Install dependencies and load `.env`.
-2. Run the definition cells in order: model and tools, prompts, Pydantic schemas, shared state, classifier, specialist nodes, synthesizer, and combined graph.
-3. Keep the default flags disabled while exploring definitions:
-   ```python
-   RUN_LIVE_EXAMPLES = False
-   RUN_INTERACTIVE_CHAT = False
-   RUN_REFRESH_SYNTHESIS = False
-   ```
-4. Enable only the live examples you intend to execute. Interactive chat loops are separately guarded so they cannot block a normal run of the definition cells.
+## What I look at in LangSmith
 
-Sections 1–16 demonstrate the individual tools and earlier standalone agents. Sections 17–24 define the shared-state workflow. The combined graph is `travel_planner_workflow`; the old search-only graph is not required.
+The public page shows the trip, not tool calls or agent traces. I use LangSmith privately to inspect the workflow, model calls, tool operations, guardrail steps, timing, and token usage.
 
-To run the final workflow directly after its definitions:
-
-```python
-query = (
-    "Plan a trip for two adults from YYZ to CDG, departing December 10, 2026 "
-    "and returning December 13, 2026. Find flights with at most one stop, "
-    "one hotel room for December 11–13, and a relaxed sightseeing itinerary. "
-    "Respect actual arrival dates and do not book anything."
-)
-
-travel_planner_result = travel_planner_workflow.invoke(
-    {
-        "user_query": query,
-        "messages": [],
-        "agent_results": [],
-        "search_agent_messages": [],
-        "travel_scout_agent_msgs": [],
-    },
-    config={"recursion_limit": 80},
-)
-
-print(travel_planner_result["synthesized_answer"])
-display_travel_planner_result(travel_planner_result)
-```
-
-Update the example dates when they are no longer in the future. Start every new workflow run with fresh specialist histories and results. This example performs live requests; it is not an offline test.
-
-To inspect nested progress instead of waiting for `.invoke()`:
-
-```python
-for namespace, update in travel_planner_workflow.stream(
-    {
-        "user_query": query,
-        "messages": [],
-        "agent_results": [],
-        "search_agent_messages": [],
-        "travel_scout_agent_msgs": [],
-    },
-    config={"recursion_limit": 80},
-    stream_mode="updates",
-    subgraphs=True,
-):
-    print(namespace, update)
-```
-
-Trace output may contain travel requests and provider results. Review it before sharing or committing.
-
-## Date consistency and search limitations
-
-- Overnight flights can arrive the day after departure. The date checker compares each returned option's destination-local arrival with the hotel dates actually searched.
-- Explicit hotel dates are preserved. A hotel stay starting before arrival is flagged as a possible extra night, rather than silently changed.
-- Different hotel dates require a new search; quotes must not be relabeled or prorated for a shorter stay.
-- The synthesizer is instructed to keep activities within the arrival/return window. Its prose is still model-generated and should be reviewed; the deterministic checks do not validate every itinerary sentence.
-- The hotel API does not expose a documented room-count filter. This notebook records `no_of_rooms` and rejects multi-room requests rather than claiming verified multi-room availability.
-- `airbnb_type=True` means Google Vacation Rentals, not Airbnb-only listings. Children require one age entry each.
-- Hotel counts and sorting cover the returned page. Flight counts represent returned itinerary options, not every available flight.
-- Search-result flight legs do not necessarily include a selected return itinerary. The workflow does not book or confirm reservations.
-- Unknown tool names are skipped by the simple manual executors, and invocation errors propagate. This is a learning notebook, not a hardened public API.
-- `KeyboardInterrupt` means execution was stopped. Deep research may take longer than direct search calls; use progress output or streaming to inspect it.
-
-## Repository files
-
-- `Multi_Agent_Travel_Planner.ipynb`: clean notebook copy with no saved outputs or execution counts.
-- `requirements.txt`: notebook dependencies.
-- `.env.example`: empty credential placeholders.
-- `.gitignore`: excludes local secrets, environments, checkpoints, and IDE files.
-- `validate_notebook.py`: checks notebook structure, Python-cell syntax, required workflow definitions, and absence of saved outputs without executing cells.
-
-To validate the clean notebook without making API requests:
-
-```bash
-python validate_notebook.py
-```
-
-The notebook was copied through PyCharm's notebook model; the original working notebook and its outputs are not modified. No API keys are included.
-
-## Web app and Vercel deployment
-
-`app.py` serves the FastAPI endpoints and the interface in `public/`. The runtime workflow lives in `planner/`; `vercel.json` configures deployment. Deployment has not been verified.
-
-Install `requirements.txt`, copy `.env.example` to `.env`, and supply these server-side variables:
-
-- `OPENAI_API_KEY`: model access, created at https://platform.openai.com/api-keys.
-- `TAVILY_API_KEY`: web research, available at https://app.tavily.com.
-- `SERPAPI_API_KEY`: Google Flights and Hotels searches, available at https://serpapi.com/manage-api-key.
-- `APP_ACCESS_TOKEN`: your own private app password. Generate a random value with `openssl rand -hex 32`, save it in `.env`, and enter it under Settings → Invitation code in the web interface. It is required on Vercel and optional locally.
-
-Run locally with `uvicorn app:app --reload`, then open http://127.0.0.1:8000.
-
-For Vercel, import this repository and set all four variables in the project's environment settings before deploying. Apply them to each environment where live planning should work. Redeploy after changing deployment variables. Keep provider keys on the server and never commit `.env` or paste provider keys into the web interface.
-
-## Public beta security controls
-
-The web runtime uses layered controls, not a claim that prompt injection is solved:
-
-- `omni-moderation-latest` checks each accepted input and the final answer. Moderation failures, missing results, and flagged content stop the request. Moderation checks harmful-content categories; it is not a prompt-injection detector.
-- Local Unicode-normalized regex checks reject common instruction overrides, prompt/secret extraction, role markers, code-execution instructions, credentials, emails, phone numbers, labeled IDs, bank accounts, and Luhn-valid payment-card numbers. Final answers have configured secrets and patterned private data removed before moderation and delivery. Pattern matching cannot recognize every PII format or obfuscated attack.
-- There is **no model-based NER** and no extra generative guardrail-model call. The existing routing model also classifies travel scope and rejects unrelated or malicious requests before tool dispatch. A model classifier remains probabilistic.
-- Every agent and the final synthesizer receive the same security policy. Retrieved content is treated as data; recognizable instruction injections are omitted from tool observations. Public responses exclude raw agent messages, internal findings, and prompts.
-- The web runtime no longer uses the Deep Agents default tool harness. Research has only a bounded web-search loop; there is no model-accessible filesystem, shell, arbitrary URL fetcher, payment, booking, or messaging tool. Provider endpoints are fixed in code.
-- Each request is capped at 16 model invocations, eight paid search calls, bounded tool batches, 2,000 output tokens per planner-model invocation, 50,000 characters of model input, and 180 seconds total. SDK retries are disabled for planner models and moderation. These are operation limits, **not an exact dollar budget**. Provider usage/billing limits remain important.
-- Request bodies are limited to 24 KiB, query text to 6,000 characters, and unexpected JSON fields are rejected. Cross-site browser submissions are rejected. The access key is checked before reading the body or starting paid work.
-- Vercel sends a restrictive Content Security Policy, framing restrictions, and disabled camera/microphone/geolocation/payment permissions. Model Markdown is rendered as text and a small element allowlist rather than executed as HTML.
-
-### Usage protection without an extra service
-
-No Redis database or additional service account is required. Each worker keeps best-effort in-memory limits: **three plans per fixed UTC minute, 30 per UTC day, and two concurrent plans**. Accepted requests consume allowance even if moderation declines them or a provider fails. Active leases expire after crashes; completed requests release them.
-
-These counters are **not app-wide**: they reset on restarts and are independent across Vercel instances. They do not establish a reliable daily budget or stop a determined token holder from exploiting serverless scaling. The access key, per-request call/token/time limits, input/output checks, and restricted tools remain enforced independently of these counters. Keep the beta invitation-only and configure provider-side usage controls as appropriate.
-
-Set `PLANNING_ENABLED=false` and redeploy for an emergency pause. A production access token must contain at least 32 characters. A shared token can be redistributed; use individual sign-in and shared storage for durable per-user quotas if broader public access is needed later.
-
-Run the offline safety suite with `python -m pytest tests -q` after installing pytest in the development environment. Tests stub external services and exercise enforcement and failure paths without charging providers. They are not a live adversarial evaluation of the models.
-
-## LangSmith observability
-
-The browser displays progress and the final travel plan. Tool calls, agent messages, and execution traces are never presented in the UI or included in downloaded plans. Observability is server-side through LangSmith.
-
-Add the following to your local `.env` and the Vercel project's environment settings, then restart locally or redeploy:
+To enable it, add these server-side variables locally and in Vercel:
 
 ```dotenv
 LANGSMITH_API_KEY=your_langsmith_key
@@ -214,10 +110,34 @@ LANGSMITH_PROJECT=travel-planner
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 ```
 
-For an EU LangSmith account, use `https://eu.api.smith.langchain.com`. If your key is associated with multiple workspaces, also set `LANGSMITH_WORKSPACE_ID`. Keep the API key server-side. LangSmith is optional: missing credentials or telemetry failures do not disable planning.
+For an EU account, use `https://eu.api.smith.langchain.com`. Add `LANGSMITH_WORKSPACE_ID` if your key requires it. Restart or redeploy after changing the configuration.
 
-The private project contains a parent `travel_plan_request` trace with nested graph nodes, model invocations, tools, and input/output guardrail checks. Safe metadata records a generated request ID, deployment revision/environment, request outcome, model-call count, and search-call count. LangChain model usage metadata is retained for LangSmith's token and cost reporting.
+The root trace is called `travel_plan_request`. **Inputs and outputs are visible after local credential and PII redaction**, including the trip request and final answer. Nested spans show the model and tool data needed to debug a result. Redaction uses patterns and configured secret values; it cannot guarantee that every private detail is recognized, so trace-project access should stay restricted.
 
-The trace client always hides inputs and outputs. A final batch filter also removes trace events, attachments, serialized prompts, runtime details, unexpected metadata, and raw exception text. Known credentials and patterned PII are masked in remaining strings. No user headers or access keys are used as tracing metadata. This deliberately limits content debugging to protect travelers; inspect workflow structure and safe operational metadata instead. Do not add raw prompts or search results to metadata.
+Trace events, attachments, serialized manifests, runtime details, and unexpected metadata are excluded. Token-usage metadata is retained. The app makes a bounded attempt to flush traces before a serverless request ends; a LangSmith outage does not disable planning. Requests rejected by authentication, body validation, or worker rate limits happen before the workflow trace starts.
 
-Trace batches are flushed with a short timeout before the serverless request finishes. Delivery remains best-effort during platform termination or LangSmith outages. Auth/body-validation/rate-limit rejections happen before the workflow trace starts; these remain HTTP errors rather than billable workflow traces. Check your LangSmith plan's trace allowance before inviting a wider audience.
+LangSmith is optional and has its own usage allowance. The app does not enable a paid LangSmith plan.
+
+## Deploying to Vercel
+
+Connect this repository to a Vercel project. `app.py` is the FastAPI entrypoint; `vercel.json` contains the deployment configuration.
+
+Set the three provider keys and `APP_ACCESS_TOKEN` in Vercel’s environment settings. Add the optional LangSmith variables if tracing is wanted. Pushes to the linked `main` branch trigger deployments; environment changes also need a redeploy. To pause live planning, set `PLANNING_ENABLED=false` and redeploy.
+
+The invitation code belongs in the app’s sidebar Settings. Provider keys and the LangSmith key belong only in server-side environment settings.
+
+## Checking changes
+
+The safety suite uses mocked providers and tracing clients. It covers injection patterns, PII handling, moderation, access checks, research budgets, worker limits, trace redaction, and failure paths without making paid API calls.
+
+```bash
+python -m pip install pytest
+python -m pytest tests -q
+node --check public/app.js
+```
+
+Passing those checks verifies the tested enforcement paths. It is not a live adversarial evaluation of the models or a guarantee of safe output.
+
+## What I’d love feedback on
+
+Does the trip builder make it easy to express what you want? Are the recommendations useful enough to act on? Are the limits and error messages understandable? Tell me where the experience feels confusing, slow, or incomplete through [GitHub issues](https://github.com/satykrishna/travel-planner-ai-assistant/issues).

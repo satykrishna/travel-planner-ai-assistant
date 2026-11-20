@@ -222,3 +222,43 @@ def test_private_data_message_explains_what_to_remove(client):
     assert response.status_code == 422
     assert 'personal contact details' in response.json()['detail']
     assert 'me@example.test' not in response.text
+
+
+@pytest.mark.parametrize('delay',[0,35,3600])
+def test_research_limit_error_explains_retry_and_simplification(client, monkeypatch, delay):
+    import planner.workflow as workflow
+    class LimitedGraph:
+        async def astream(self,*args,**kwargs):
+            raise guardrails.BudgetExceeded('Too many research operations requested.')
+            yield
+    monkeypatch.setattr(workflow,'get_workflow',lambda: LimitedGraph())
+    monkeypatch.setattr(web,'retry_after_seconds',lambda: delay)
+    response = client.post('/api/plan',json={'query':'Plan Paris'},headers=HEADERS)
+    events = [json.loads(line) for line in response.text.splitlines()]
+    error = next(item['data'] for item in events if item['event']=='error')
+    assert 'Too many research operations' not in response.text
+    assert 'one destination' in error['message']
+    assert error['code'] == 'research_limit'
+    assert error['retry_after_seconds'] == delay
+    if delay == 0:
+        assert 'simpler request now' in error['message']
+        assert error['retry_at'] is None
+    elif delay <= 60:
+        assert '35 seconds' in error['message']
+        assert error['retry_at']
+    else:
+        assert 'daily' in error['message']
+        assert error['retry_at']
+    web.release.assert_awaited_once()
+
+
+def test_retry_hint_tracks_minute_and_day_reset(monkeypatch):
+    limits._counts.clear(); limits._leases.clear()
+    now = 172859.4
+    monkeypatch.setattr(limits.time,'time',lambda: now)
+    assert limits.retry_after_seconds() == 0
+    limits._counts[('minute',int(now//60))] = (limits.MINUTE_LIMIT,now+120)
+    assert limits.retry_after_seconds() == 1
+    limits._counts[('day',int(now//86400))] = (limits.DAILY_LIMIT,now+172800)
+    assert limits.retry_after_seconds() > 60
+    limits._counts.clear()

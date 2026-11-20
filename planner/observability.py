@@ -1,12 +1,13 @@
-"""Optional, content-hidden LangSmith tracing for the server-side planner."""
+"""Optional LangSmith tracing with redacted inputs and outputs."""
 
 import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from contextlib import ExitStack, contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 from langsmith import Client, trace, tracing_context
@@ -22,6 +23,26 @@ _METADATA_KEYS = {
     "usage_metadata",
 }
 _ENDPOINTS = {"https://api.smith.langchain.com", "https://eu.api.smith.langchain.com"}
+_PRIVATE_FIELDS = {"authorization", "api_key", "apikey", "x_api_key", "access_key",
+                   "access_token", "password", "cookie", "set_cookie", "token",
+                   "reasoning_content", "hidden_reasoning"}
+_TRACE_CREDENTIAL = re.compile(r"\b(?:Bearer\s+[A-Za-z0-9._~+/-]+=*|lsv2_(?:pt|sk)_[A-Za-z0-9_-]{16,})", re.I)
+
+
+def redact_trace_data(value):
+    """Retain useful trace content while masking credentials and patterned PII."""
+    if isinstance(value, str):
+        return _TRACE_CREDENTIAL.sub("[redacted]", redact_pii(public_data(value)))
+    if isinstance(value, dict):
+        return {str(public_data(key)): ("[redacted]" if str(key).lower().replace("-", "_") in _PRIVATE_FIELDS
+                                       else redact_trace_data(item)) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_trace_data(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return redact_trace_data(value.model_dump())
+    if value is None or type(value) in (bool, int, float):
+        return value
+    return redact_trace_data(str(value))
 
 
 def safe_run_operations(operations):
@@ -29,12 +50,14 @@ def safe_run_operations(operations):
     result = []
     for operation in operations:
         run = dict(operation)
-        run["inputs"] = {}
-        run["outputs"] = {}
+        if "inputs" in run:
+            run["inputs"] = redact_trace_data(run["inputs"])
+        if "outputs" in run:
+            run["outputs"] = redact_trace_data(run["outputs"])
         for key in ("events", "attachments", "serialized"):
             run.pop(key, None)
         if run.get("error"):
-            run["error"] = "Operation did not complete successfully; inspect outcome metadata."
+            run["error"] = redact_trace_data(str(run["error"]).splitlines()[0][:1000])
         extra = run.get("extra") or {}
         metadata = extra.get("metadata") or {}
         safe_metadata = {key: value for key, value in metadata.items() if key in _METADATA_KEYS}
@@ -84,7 +107,7 @@ def get_client():
         return Client(
             api_url=endpoint, api_key=key,
             workspace_id=os.getenv("LANGSMITH_WORKSPACE_ID") or None,
-            hide_inputs=True, hide_outputs=True, omit_traced_runtime_info=True,
+            hide_inputs=redact_trace_data, hide_outputs=redact_trace_data, omit_traced_runtime_info=True,
             process_buffered_run_ops=safe_run_operations,
             run_ops_buffer_size=64, run_ops_buffer_timeout_ms=100,
             timeout_ms=1000, retry_config=Retry(total=0),
@@ -99,19 +122,24 @@ class Observation:
     client: Client | None = None
     run: object = None
     outcome: str = "cancelled"
+    result: dict = field(default_factory=dict)
 
     def record(self, event):
-        kind = json.loads(event).get("event")
+        payload = json.loads(event)
+        kind = payload.get("event")
         if kind == "result":
             self.outcome = "success"
+            self.result = {"answer": payload.get("data", {}).get("answer", "")}
         elif kind == "error":
             self.outcome = "blocked_or_failed"
+            self.result = {"error": payload.get("data", {}).get("message", "Planning could not complete.")}
 
     def finish(self, budget):
         if self.run is not None:
             try:
                 self.run.end(
-                    error=None if self.outcome == "success" else "Request did not complete successfully.",
+                    outputs=redact_trace_data(self.result or {"outcome": self.outcome}),
+                    error=None if self.outcome == "success" else redact_trace_data(self.result.get("error", "Request did not complete successfully.")),
                     metadata={"outcome": self.outcome, **budget},
                 )
             except Exception:
@@ -128,7 +156,7 @@ class Observation:
 
 
 @contextmanager
-def observe_request():
+def observe_request(query=""):
     client = get_client()
     project = os.getenv("LANGSMITH_PROJECT", "travel-planner")
     metadata = {"request_id": uuid.uuid4().hex,
@@ -142,7 +170,7 @@ def observe_request():
         stack.enter_context(tracing_context(enabled=client is not None, client=client,
                                             project_name=project, parent=False))
         if client is not None:
-            run = stack.enter_context(trace("travel_plan_request", run_type="chain", inputs={},
+            run = stack.enter_context(trace("travel_plan_request", run_type="chain", inputs={"query": redact_trace_data(query)},
                                             client=client, project_name=project, metadata=metadata,
                                             tags=["travel-planner", metadata["environment"]]))
             observation = Observation(client=client, run=run)

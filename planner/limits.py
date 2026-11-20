@@ -49,3 +49,16 @@ async def reserve():
 async def release(lease):
     with _lock:
         _leases.pop(lease, None)
+
+
+def retry_after_seconds():
+    """Earliest retry from current worker quotas, after this request releases its slot."""
+    now = time.time()
+    with _lock:
+        minute = _counts.get(("minute", int(now // 60)), (0, 0))[0]
+        day = _counts.get(("day", int(now // 86400)), (0, 0))[0]
+    if day >= DAILY_LIMIT:
+        return max(1, int(86400 - now % 86400) + 1)
+    if minute >= MINUTE_LIMIT:
+        return max(1, int(60 - now % 60) + 1)
+    return 0

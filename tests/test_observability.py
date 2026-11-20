@@ -6,10 +6,10 @@ from unittest.mock import Mock
 from planner import observability as obs
 
 
-def test_trace_batches_hide_contents_but_preserve_usage(monkeypatch):
+def test_trace_batches_redact_contents_but_preserve_usage(monkeypatch):
     monkeypatch.setenv('LANGSMITH_API_KEY','test-langsmith-secret-12345678')
     raw = {'id':'safe-run-id', 'name':'search_flights', 'run_type':'llm',
-           'inputs':{'query':'PRIVATE TRIP QUERY'}, 'outputs':{'text':'PRIVATE ANSWER'},
+           'inputs':{'query':'Plan a trip to Lisbon. Email private@example.test', 'api_key':'unconfigured-secret'}, 'outputs':{'text':'A relaxed Lisbon itinerary. test-langsmith-secret-12345678'},
            'events':[{'text':'PRIVATE EVENT'}], 'attachments':{'secret':'PRIVATE ATTACHMENT'},
            'serialized':{'prompt':'PRIVATE SYSTEM PROMPT'},
            'error':'Request failed: test-langsmith-secret-12345678 at private@example.test',
@@ -17,7 +17,9 @@ def test_trace_batches_hide_contents_but_preserve_usage(monkeypatch):
                'request_id':'safe-request-id','ls_model_name':'gpt-4o-mini','private_query':'PRIVATE QUERY',
                'usage_metadata':{'input_tokens':100,'output_tokens':20,'total_tokens':120,'unexpected':'PRIVATE USAGE'}}}}
     result = obs.safe_run_operations([raw])[0]
-    assert result['inputs'] == {} and result['outputs'] == {}
+    assert 'Plan a trip to Lisbon' in result['inputs']['query']
+    assert result['inputs']['api_key'] == '[redacted]'
+    assert 'A relaxed Lisbon itinerary' in result['outputs']['text']
     assert result['extra']['metadata']['usage_metadata'] == {'input_tokens':100,'output_tokens':20,'total_tokens':120}
     assert result['extra']['metadata']['ls_model_name'] == 'gpt-4o-mini'
     assert 'PRIVATE' not in str(result) and 'test-langsmith-secret-12345678' not in str(result)
@@ -45,7 +47,9 @@ def test_client_uses_privacy_filter_and_no_retries(monkeypatch):
     obs.get_client.cache_clear()
     assert obs.get_client() is not None
     kwargs = factory.call_args.kwargs
-    assert kwargs['hide_inputs'] and kwargs['hide_outputs'] and kwargs['omit_traced_runtime_info']
+    assert kwargs['hide_inputs'] is obs.redact_trace_data
+    assert kwargs['hide_outputs'] is obs.redact_trace_data
+    assert kwargs['omit_traced_runtime_info']
     assert kwargs['process_buffered_run_ops'] is obs.safe_run_operations
     assert kwargs['retry_config'].total == 0
     obs.get_client.cache_clear()
@@ -67,10 +71,11 @@ def test_observation_reports_counts_and_flushes(monkeypatch):
     client = SimpleNamespace(flush=Mock())
     run = SimpleNamespace(end=Mock())
     observation = obs.Observation(client=client,run=run)
-    observation.record('{"event":"error","data":{"message":"PRIVATE INPUT"}}')
+    observation.record('{"event":"error","data":{"message":"Please retry. Contact private@example.test"}}')
     observation.finish({'model_calls':5,'search_calls':2})
     assert run.end.call_args.kwargs['metadata'] == {'outcome':'blocked_or_failed','model_calls':5,'search_calls':2}
-    assert 'PRIVATE' not in str(run.end.call_args)
+    assert 'private@example.test' not in str(run.end.call_args)
+    assert 'Please retry.' in run.end.call_args.kwargs['outputs']['error']
     asyncio.run(observation.flush())
     client.flush.assert_called_once_with(timeout=2)
 
@@ -86,3 +91,33 @@ def test_tracing_setup_failure_does_not_block_planning(monkeypatch):
         assert observation.client is None
         observation.record('{"event":"result"}')
         assert observation.outcome == 'success'
+
+
+def test_nested_message_objects_are_redacted(monkeypatch):
+    from langchain_core.messages import AIMessage
+    monkeypatch.setenv('OPENAI_API_KEY','test-openai-secret-12345678')
+    payload = {'messages':[AIMessage(content='Plan Lisbon. private@example.test test-openai-secret-12345678', additional_kwargs={'reasoning_content':'PRIVATE REASONING'})], 'headers':{'Authorization':'Bearer unknown-token'}}
+    result = obs.redact_trace_data(payload)
+    assert 'Plan Lisbon.' in str(result)
+    assert 'private@example.test' not in str(result)
+    assert 'test-openai-secret-12345678' not in str(result)
+    assert 'PRIVATE REASONING' not in str(result)
+    assert result['headers']['Authorization'] == '[redacted]'
+
+
+def test_root_trace_has_redacted_query_and_answer(monkeypatch):
+    monkeypatch.setattr(obs,'get_client',lambda: object())
+    run = SimpleNamespace(end=Mock())
+    captured = {}
+    @contextmanager
+    def capture_trace(*args,**kwargs):
+        captured.update(kwargs)
+        yield run
+    monkeypatch.setattr(obs,'trace',capture_trace)
+    with obs.observe_request('Plan Kyoto. private@example.test') as observation:
+        observation.record('{"event":"result","data":{"answer":"Explore Kyoto. Contact private@example.test"}}')
+        observation.finish({'model_calls':3,'search_calls':1})
+    assert 'Plan Kyoto.' in captured['inputs']['query']
+    assert 'private@example.test' not in str(captured)
+    assert 'Explore Kyoto.' in run.end.call_args.kwargs['outputs']['answer']
+    assert 'private@example.test' not in str(run.end.call_args)

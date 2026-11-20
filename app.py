@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from contextlib import suppress
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from urllib.parse import urlsplit
 
 from planner.guardrails import (BudgetExceeded, GuardUnavailable, PolicyViolation, budget_metrics, guard_input, guard_output, end_budget, public_data, start_budget, validate_untrusted)
-from planner.limits import MAX_REQUEST_SECONDS, release, reserve
+from planner.limits import MAX_REQUEST_SECONDS, release, reserve, retry_after_seconds
 from planner.observability import observe_request
 
 ROOT = Path(__file__).parent
@@ -75,6 +76,19 @@ def encode(event, data):
     return json.dumps(public_data({"event": event, "data": data}), ensure_ascii=False, default=str) + "\n"
 
 
+def research_limit_error():
+    delay = retry_after_seconds()
+    message = "This trip needed more research than one plan allows. Try one destination, one set of dates, or fewer activities."
+    if delay == 0:
+        message += " You can submit a simpler request now; repeating the same request may reach the limit again."
+    elif delay <= 60:
+        message += f" Please wait {delay} seconds before submitting a simpler request."
+    else:
+        message += " This server's daily planning allowance has also been reached. Please retry after the daily reset."
+    return {"message": message, "code": "research_limit", "retry_after_seconds": delay,
+            "retry_at": (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat() if delay else None}
+
+
 async def research_events(request, query):
 
     pending = None
@@ -125,7 +139,9 @@ async def research_events(request, query):
             "answer": answer,
             "tasks": [{"target_agent": task["target_agent"], "focus": "Travel research"} for task in final_state.get("tasks", [])],
         })
-    except (PolicyViolation, BudgetExceeded, GuardUnavailable) as error:
+    except BudgetExceeded:
+        yield encode("error", research_limit_error())
+    except (PolicyViolation, GuardUnavailable) as error:
         yield encode("error", {"message": str(error)})
     except TimeoutError:
         yield encode("error", {"message": "This request reached the time limit. Try fewer destinations or a more focused search."})
@@ -147,7 +163,7 @@ async def plan_events(request, query, lease):
     events = research_events(request, query)
     observation = None
     try:
-        with observe_request() as observation:
+        with observe_request(query) as observation:
             try:
                 async with asyncio.timeout(MAX_REQUEST_SECONDS):
                     async for event in events:

@@ -86,7 +86,14 @@ function finish(data, remember = true) {
 function eventReceived(item) {
   if (item.event === 'progress') setActivity(labels[item.data.node] || 'Finding the right options for you…');
   if (item.event === 'result') finish(item.data);
-  if (item.event === 'error') throw new Error(item.data.message);
+  if (item.event === 'error') {
+    let message = item.data.message;
+    if (item.data.retry_after_seconds > 60 && item.data.retry_at) {
+      const retryAt = new Date(item.data.retry_at);
+      if (!Number.isNaN(retryAt.getTime())) message += ' You can try again on ' + retryAt.toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZoneName:'short'}) + '.';
+    }
+    throw new Error(message);
+  }
 }
 
 async function createPlan(event) {
