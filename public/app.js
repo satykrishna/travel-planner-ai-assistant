@@ -22,6 +22,7 @@ function setActivity(text, kind = '') {
 }
 
 function setTab(which) {
+  if (which === 'trace' && $('trace-tab').hidden) return;
   for (const name of ['plan', 'trace']) {
     const active = name === which;
     $(name + '-tab').setAttribute('aria-selected', String(active));
@@ -180,6 +181,7 @@ $('cancel-plan').addEventListener('click', () => controller?.abort());
 $('trip-query').addEventListener('input', () => { $('char-count').textContent = $('trip-query').value.length + ' / 6000'; });
 for (const name of ['plan', 'trace']) $(name + '-tab').addEventListener('click', () => setTab(name));
 document.querySelector('.tabs').addEventListener('keydown', (e) => {
+  if ($('trace-tab').hidden) return;
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { const next = $('plan-tab').getAttribute('aria-selected') === 'true' ? 'trace' : 'plan'; setTab(next); $(next + '-tab').focus(); }
 });
 for (const chip of document.querySelectorAll('[data-starter]')) chip.addEventListener('click', () => {
@@ -212,6 +214,7 @@ async function checkStatus() {
   try {
     const response = await fetch('/api/status'); if (!response.ok) throw new Error('Unavailable');
     const status = await response.json(); ready = status.ready; $('submit-plan').disabled = !ready;
+    $('trace-tab').hidden = !status.trace_enabled;
     $('connection-label').textContent = ready ? 'Your travel team is ready' : 'Explore an example plan';
     $('connection-dot').classList.toggle('ready', ready); $('access-field').hidden = !status.access_required;
     if (!ready) { $('setup-note').textContent = 'Live planning is unavailable. You can view an example plan below.'; $('setup-note').hidden = false; }

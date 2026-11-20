@@ -11,16 +11,21 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from urllib.parse import urlsplit
+
+from planner.guardrails import (BudgetExceeded, GuardUnavailable, PolicyViolation, guard_input, guard_output, end_budget, public_data, start_budget, validate_untrusted)
+from planner.limits import MAX_REQUEST_SECONDS, quota_ready, release, reserve
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env", override=False)
-app = FastAPI(title="Travel Planner AI Assistant", docs_url=None, redoc_url=None)
+app = FastAPI(title="Travel Planner AI Assistant", docs_url=None, redoc_url=None, openapi_url=None)
 logger = logging.getLogger(__name__)
 REQUIRED_KEYS = ("OPENAI_API_KEY", "TAVILY_API_KEY", "SERPAPI_API_KEY")
 
 
 class PlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     query: str = Field(min_length=5, max_length=6000)
 
     @field_validator("query")
@@ -29,15 +34,15 @@ class PlanRequest(BaseModel):
         value = value.strip()
         if len(value) < 5:
             raise ValueError("Describe your trip in at least 5 characters.")
-        return value
+        return validate_untrusted(value)
 
 
 def configuration():
     missing = any(not os.getenv(key, "").strip() for key in REQUIRED_KEYS)
     access_required = bool(os.getenv("APP_ACCESS_TOKEN"))
     # A deployed, paid search endpoint must not become open by accident.
-    production_unprotected = bool(os.getenv("VERCEL")) and not access_required
-    return {"ready": not missing and not production_unprotected, "access_required": access_required}
+    production_unprotected = bool(os.getenv("VERCEL")) and len(os.getenv("APP_ACCESS_TOKEN", "")) < 32
+    return {"ready": not missing and not production_unprotected and quota_ready() and os.getenv("PLANNING_ENABLED", "true").lower() == "true", "access_required": access_required, "trace_enabled": False}
 
 
 @app.get("/api/status")
@@ -66,37 +71,26 @@ def sample():
 
 
 def encode(event, data):
-    return json.dumps({"event": event, "data": data}, ensure_ascii=False, default=str) + "\n"
+    return json.dumps(public_data({"event": event, "data": data}), ensure_ascii=False, default=str) + "\n"
 
 
-def message_record(message):
-    text = message.content
-    if not isinstance(text, str):
-        text = json.dumps(text, ensure_ascii=False, default=str)
-    return {
-        "type": type(message).__name__,
-        "content": text[:16000], "truncated": len(text) > 16000,
-        "tool_calls": getattr(message, "tool_calls", []),
-        "tool_call_id": getattr(message, "tool_call_id", None),
-        "name": getattr(message, "name", None),
-    }
-
-
-async def plan_events(request, query):
-    from planner.dates import check_flight_hotel_dates
-    from planner.workflow import get_workflow, initial_state
+async def research_events(request, query):
 
     pending = None
     stream = None
     final_state = None
     try:
+        from planner.workflow import get_workflow, initial_state
+
         yield encode("progress", {"node": "starting", "message": "Preparing your travel team"})
+        async with asyncio.timeout(35):
+            query = await guard_input(query)
         graph = get_workflow()
         stream = graph.astream(
-            initial_state(query), config={"recursion_limit": 60},
+            initial_state(query), config={"recursion_limit": 24},
             stream_mode=["updates", "values"], subgraphs=True,
         )
-        async with asyncio.timeout(270):
+        async with asyncio.timeout(MAX_REQUEST_SECONDS):
             while True:
                 if await request.is_disconnected():
                     return
@@ -119,21 +113,19 @@ async def plan_events(request, query):
                     if not isinstance(update, dict):
                         continue
                     if node == "classify_user_query":
-                        yield encode("routing", {"tasks": update.get("tasks", [])})
+                        yield encode("routing", {"tasks": [{"target_agent": task["target_agent"], "focus": "Travel research"} for task in update.get("tasks", [])]})
                     if node in {"search_agent_node", "search_tool_node", "travel_scout_agent_node", "travel_scout_tool_node", "synthesizer_node"}:
                         yield encode("progress", {"node": node})
-                        for key in ("search_agent_messages", "travel_scout_agent_msgs"):
-                            for message in update.get(key, []):
-                                yield encode("trace", {"agent": "search_agent" if key == "search_agent_messages" else "travel_scout_agent", **message_record(message)})
         if not final_state or not final_state.get("synthesized_answer"):
             raise RuntimeError("Workflow ended without an answer")
-        checks = check_flight_hotel_dates(final_state)
+        async with asyncio.timeout(35):
+            answer = await guard_output(final_state["synthesized_answer"])
         yield encode("result", {
-            "answer": final_state["synthesized_answer"],
-            "tasks": final_state.get("tasks", []),
-            "findings": final_state.get("agent_results", []),
-            "date_checks": checks,
+            "answer": answer,
+            "tasks": [{"target_agent": task["target_agent"], "focus": "Travel research"} for task in final_state.get("tasks", [])],
         })
+    except (PolicyViolation, BudgetExceeded, GuardUnavailable) as error:
+        yield encode("error", {"message": str(error)})
     except TimeoutError:
         yield encode("error", {"message": "This request reached the time limit. Try fewer destinations or a more focused search."})
     except Exception as error:
@@ -149,14 +141,45 @@ async def plan_events(request, query):
                 await stream.aclose()
 
 
+async def plan_events(request, query, lease):
+    budget_token = start_budget()
+    events = research_events(request, query)
+    try:
+        async with asyncio.timeout(MAX_REQUEST_SECONDS):
+            async for event in events:
+                yield event
+    except TimeoutError:
+        yield encode("error", {"message": "This plan reached its time limit. Try a shorter, more focused trip."})
+    finally:
+        await events.aclose()
+        end_budget(budget_token)
+        await release(lease)
+
+
 @app.post("/api/plan")
-async def plan(body: PlanRequest, request: Request, authorization: str | None = Header(default=None)):
+async def plan(request: Request, authorization: str | None = Header(default=None)):
     access_token = os.getenv("APP_ACCESS_TOKEN", "")
-    if access_token and not hmac.compare_digest(authorization or "", "Bearer " + access_token):
+    if access_token and not hmac.compare_digest((authorization or "").encode(), ("Bearer " + access_token).encode()):
         raise HTTPException(401, "Enter the app access key to create a plan.")
     if not configuration()["ready"]:
-        raise HTTPException(503, "Server setup is incomplete. Configure provider keys and an APP_ACCESS_TOKEN on Vercel.")
+        raise HTTPException(503, "Live planning is paused while the host configures access and usage protection.")
+    origin = request.headers.get("origin")
+    if (request.headers.get("sec-fetch-site") == "cross-site" or
+            (origin and urlsplit(origin).netloc != request.url.netloc)):
+        raise HTTPException(403, "Please create your plan from this website.")
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Send your trip as JSON.")
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > 24576:
+            raise HTTPException(413, "Your trip request is too large.")
+        raw.extend(chunk)
+    try:
+        body = PlanRequest.model_validate_json(raw)
+    except ValidationError:
+        raise HTTPException(422, "Use a travel request of 5–6000 characters without credentials, code execution, or instruction overrides.") from None
+    lease = await reserve()
     return StreamingResponse(
-        plan_events(request, body.query), media_type="application/x-ndjson",
+        plan_events(request, body.query, lease), media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"},
     )
