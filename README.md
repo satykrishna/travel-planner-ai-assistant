@@ -200,3 +200,24 @@ These counters are **not app-wide**: they reset on restarts and are independent 
 Set `PLANNING_ENABLED=false` and redeploy for an emergency pause. A production access token must contain at least 32 characters. A shared token can be redistributed; use individual sign-in and shared storage for durable per-user quotas if broader public access is needed later.
 
 Run the offline safety suite with `python -m pytest tests -q` after installing pytest in the development environment. Tests stub external services and exercise enforcement and failure paths without charging providers. They are not a live adversarial evaluation of the models.
+
+## LangSmith observability
+
+The browser displays progress and the final travel plan. Tool calls, agent messages, and execution traces are never presented in the UI or included in downloaded plans. Observability is server-side through LangSmith.
+
+Add the following to your local `.env` and the Vercel project's environment settings, then restart locally or redeploy:
+
+```dotenv
+LANGSMITH_API_KEY=your_langsmith_key
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=travel-planner
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+```
+
+For an EU LangSmith account, use `https://eu.api.smith.langchain.com`. If your key is associated with multiple workspaces, also set `LANGSMITH_WORKSPACE_ID`. Keep the API key server-side. LangSmith is optional: missing credentials or telemetry failures do not disable planning.
+
+The private project contains a parent `travel_plan_request` trace with nested graph nodes, model invocations, tools, and input/output guardrail checks. Safe metadata records a generated request ID, deployment revision/environment, request outcome, model-call count, and search-call count. LangChain model usage metadata is retained for LangSmith's token and cost reporting.
+
+The trace client always hides inputs and outputs. A final batch filter also removes trace events, attachments, serialized prompts, runtime details, unexpected metadata, and raw exception text. Known credentials and patterned PII are masked in remaining strings. No user headers or access keys are used as tracing metadata. This deliberately limits content debugging to protect travelers; inspect workflow structure and safe operational metadata instead. Do not add raw prompts or search results to metadata.
+
+Trace batches are flushed with a short timeout before the serverless request finishes. Delivery remains best-effort during platform termination or LangSmith outages. Auth/body-validation/rate-limit rejections happen before the workflow trace starts; these remain HTTP errors rather than billable workflow traces. Check your LangSmith plan's trace allowance before inviting a wider audience.

@@ -2,7 +2,6 @@ const $ = (id) => document.getElementById(id);
 let controller = null;
 let timer = null;
 let savedResult = null;
-let traces = [];
 let ready = false;
 let activeQuery = "";
 
@@ -19,15 +18,6 @@ function setActivity(text, kind = '') {
   $('activity-label').textContent = text;
   $('activity').className = 'activity ' + kind;
   $('spinner').hidden = kind !== '';
-}
-
-function setTab(which) {
-  if (which === 'trace' && $('trace-tab').hidden) return;
-  for (const name of ['plan', 'trace']) {
-    const active = name === which;
-    $(name + '-tab').setAttribute('aria-selected', String(active));
-    $(name + '-view').hidden = !active;
-  }
 }
 
 // Render only text and a small allowlist of Markdown elements. Model HTML is never executed.
@@ -75,64 +65,25 @@ function renderAnswer(markdown) {
   }
 }
 
-function addTrace(message) {
-  traces.push(message);
-  $('trace-count').textContent = String(traces.length);
-  const details = document.createElement('details'); details.className = 'trace-entry';
-  const agent = document.createElement('span'); agent.className = 'trace-agent';
-  agent.textContent = message.agent === 'search_agent' ? 'FLIGHTS & STAYS' : 'LOCAL DISCOVERY';
-  const summary = document.createElement('summary');
-  const calls = message.tool_calls || [];
-  summary.textContent = `${traces.length}. ${message.type}` + (message.name ? ` · ${message.name}` : '') +
-    (calls.length ? ' → ' + calls.map((c) => c.name).join(', ') : '');
-  details.append(summary); summary.prepend(agent);
-  if (message.tool_call_id) {
-    const id = document.createElement('p'); id.className = 'call-id'; id.textContent = 'Call ID: ' + message.tool_call_id; details.append(id);
-  }
-  if (message.content) {
-    const pre = document.createElement('pre');
-    try { pre.textContent = JSON.stringify(JSON.parse(message.content), null, 2); }
-    catch { pre.textContent = message.content; }
-    if (message.truncated) pre.textContent += '\n[Observation truncated for display]';
-    details.append(pre);
-  }
-  if (calls.length) {
-    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(calls, null, 2); details.append(pre);
-  }
-  $('trace-list').append(details);
-}
-
-function showRouting(tasks) {
-  $('agent-pills').replaceChildren();
-  for (const task of tasks) {
-    const pill = document.createElement('span'); pill.className = 'agent-pill';
-    pill.textContent = task.target_agent === 'search_agent' ? '✈ Flights & stays' : '⌖ Local discovery';
-    pill.title = task.focus; $('agent-pills').append(pill);
-  }
-}
-
 function resetView(sample = false) {
   $('results').hidden = false;
-  savedResult = null; traces = []; $('trace-list').replaceChildren(); $('trace-count').textContent = '0';
-  $('agent-pills').replaceChildren(); $('answer').replaceChildren(); $('empty-state').hidden = true;
+  savedResult = null; $('answer').replaceChildren(); $('empty-state').hidden = true;
   $('run-state').hidden = false; $('download-result').hidden = true; $('sample-banner').hidden = !sample;
-  $('plan-loading').hidden = false; $('form-error').hidden = true; setTab('plan');
+  $('plan-loading').hidden = false; $('form-error').hidden = true;
   $('results').focus({preventScroll: true});
   $('results').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
 function finish(data, remember = true) {
-  savedResult = {...data, query: activeQuery || $('trip-query').value, trace: traces};
+  savedResult = {answer: data.answer, query: activeQuery || $('trip-query').value};
   if (remember && $('sample-banner').hidden) rememberPlan(savedResult);
-  showRouting(data.tasks || []); renderAnswer(data.answer);
+  renderAnswer(data.answer);
   $('plan-loading').hidden = true; $('download-result').hidden = false;
   setActivity($('sample-banner').hidden ? 'Your plan is ready.' : 'Example plan', 'complete');
 }
 
 function eventReceived(item) {
   if (item.event === 'progress') setActivity(labels[item.data.node] || 'Your travel team is working…');
-  if (item.event === 'routing') showRouting(item.data.tasks);
-  if (item.event === 'trace') addTrace(item.data);
   if (item.event === 'result') finish(item.data);
   if (item.event === 'error') throw new Error(item.data.message);
 }
@@ -179,11 +130,6 @@ async function createPlan(event) {
 $('plan-form').addEventListener('submit', createPlan);
 $('cancel-plan').addEventListener('click', () => controller?.abort());
 $('trip-query').addEventListener('input', () => { $('char-count').textContent = $('trip-query').value.length + ' / 6000'; });
-for (const name of ['plan', 'trace']) $(name + '-tab').addEventListener('click', () => setTab(name));
-document.querySelector('.tabs').addEventListener('keydown', (e) => {
-  if ($('trace-tab').hidden) return;
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { const next = $('plan-tab').getAttribute('aria-selected') === 'true' ? 'trace' : 'plan'; setTab(next); $(next + '-tab').focus(); }
-});
 for (const chip of document.querySelectorAll('[data-starter]')) chip.addEventListener('click', () => {
   const departure = new Date(); departure.setDate(departure.getDate() + 45);
   const arrival = new Date(departure); arrival.setDate(arrival.getDate() + 1);
@@ -201,7 +147,6 @@ $('preview-sample').addEventListener('click', async () => {
   try {
     const response = await fetch('/sample.json'); if (!response.ok) throw new Error('Example unavailable');
     const sample = await response.json(); resetView(true); $('trip-query').value = sample.query; $('trip-query').dispatchEvent(new Event('input'));
-    for (const message of sample.trace) addTrace(message);
     activeQuery = sample.query; finish(sample); $('elapsed').textContent = '';
   } catch { $('form-error').textContent = 'The example could not be loaded. Please refresh and try again.'; $('form-error').hidden = false; }
 });
@@ -214,7 +159,6 @@ async function checkStatus() {
   try {
     const response = await fetch('/api/status'); if (!response.ok) throw new Error('Unavailable');
     const status = await response.json(); ready = status.ready; $('submit-plan').disabled = !ready;
-    $('trace-tab').hidden = !status.trace_enabled;
     $('connection-label').textContent = ready ? 'Your travel team is ready' : 'Explore an example plan';
     $('connection-dot').classList.toggle('ready', ready); $('access-field').hidden = !status.access_required;
     if (!ready) { $('setup-note').textContent = 'Live planning is unavailable. You can view an example plan below.'; $('setup-note').hidden = false; }

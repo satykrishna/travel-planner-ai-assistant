@@ -34,16 +34,13 @@
         </section>
 
         <section class="result-panel" id="results" hidden tabindex="-1" aria-labelledby="result-title">
-          <div class="result-heading"><div><h2 id="result-title">Your travel plan</h2></div><button id="download-result" class="icon-button" type="button" hidden aria-label="Download plan and execution trace as JSON">Export plan</button></div>
+          <div class="result-heading"><div><h2 id="result-title">Your travel plan</h2></div><button id="download-result" class="icon-button" type="button" hidden aria-label="Download travel plan">Export plan</button></div>
 
           <div id="empty-state" hidden></div>
           <div id="run-state" hidden>
             <div class="activity" id="activity" role="status" aria-live="polite"><span class="spinner" id="spinner"></span><span id="activity-label">Preparing your travel team…</span><span id="elapsed"></span></div>
             <div class="sample-banner" id="sample-banner" hidden>EXAMPLE PREVIEW · Illustrative content, not live search results</div>
-            <div class="agent-pills" id="agent-pills"></div>
-            <div class="tabs" role="tablist" aria-label="Plan views"><button type="button" role="tab" id="plan-tab" aria-controls="plan-view" aria-selected="true">Your plan</button><button type="button" role="tab" id="trace-tab" hidden aria-controls="trace-view" aria-selected="false">Research details <span id="trace-count">0</span></button></div>
-            <div id="plan-view" role="tabpanel" aria-labelledby="plan-tab"><div id="plan-loading" class="plan-loading"><span class="loading-line"></span><span class="loading-line"></span><span class="loading-line"></span><p>Looking at the options. Connecting the details.</p></div><article id="answer" class="answer"></article></div>
-            <div id="trace-view" role="tabpanel" aria-labelledby="trace-tab" hidden><p class="trace-note">Follow each agent's messages and tool calls. Agents may work in parallel; this is the order updates reached your browser.</p><div id="trace-list"></div></div>
+            <div id="plan-view"><div id="plan-loading" class="plan-loading"><span class="loading-line"></span><span class="loading-line"></span><span class="loading-line"></span><p>Looking at the options. Connecting the details.</p></div><article id="answer" class="answer"></article></div>
           </div>
         </section>
       </div>

@@ -48,7 +48,7 @@ _INJECTION = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _SECRET_NAMES = ("OPENAI_API_KEY", "TAVILY_API_KEY", "SERPAPI_API_KEY", "APP_ACCESS_TOKEN",
-                 "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN")
+                 "LANGSMITH_API_KEY", "LANGCHAIN_API_KEY")
 _SECRET_PATTERN = re.compile(r"\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|tvly-[A-Za-z0-9_-]{16,})\b")
 
 
@@ -133,6 +133,11 @@ def end_budget(token):
     _budget.reset(token)
 
 
+def budget_metrics():
+    budget = _budget.get()
+    return {"model_calls": budget.model_calls, "search_calls": budget.search_calls} if budget else {}
+
+
 def spend(operation):
     budget = _budget.get()
     if budget is None:
@@ -148,6 +153,7 @@ async def invoke_model(model, messages, config=None):
 
 # Moderation is separate from injection/PII detection. No model-based NER.
 from openai import AsyncOpenAI, OpenAIError
+from langsmith import traceable
 import httpx
 
 
@@ -208,6 +214,7 @@ async def moderate_text(text, *, output=False):
         raise GuardUnavailable("Safety checks are temporarily unavailable. Please try again later.") from None
 
 
+@traceable(name="input_guardrails", run_type="chain")
 async def guard_input(text):
     text = validate_untrusted(text)
     if redact_pii(text) != text:
@@ -216,6 +223,7 @@ async def guard_input(text):
     return text
 
 
+@traceable(name="output_guardrails", run_type="chain")
 async def guard_output(text):
     text = redact_pii(public_data(text))
     try:

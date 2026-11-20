@@ -14,8 +14,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from urllib.parse import urlsplit
 
-from planner.guardrails import (BudgetExceeded, GuardUnavailable, PolicyViolation, guard_input, guard_output, end_budget, public_data, start_budget, validate_untrusted)
+from planner.guardrails import (BudgetExceeded, GuardUnavailable, PolicyViolation, budget_metrics, guard_input, guard_output, end_budget, public_data, start_budget, validate_untrusted)
 from planner.limits import MAX_REQUEST_SECONDS, release, reserve
+from planner.observability import observe_request
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env", override=False)
@@ -144,16 +145,26 @@ async def research_events(request, query):
 async def plan_events(request, query, lease):
     budget_token = start_budget()
     events = research_events(request, query)
+    observation = None
     try:
-        async with asyncio.timeout(MAX_REQUEST_SECONDS):
-            async for event in events:
+        with observe_request() as observation:
+            try:
+                async with asyncio.timeout(MAX_REQUEST_SECONDS):
+                    async for event in events:
+                        observation.record(event)
+                        yield event
+            except TimeoutError:
+                event = encode("error", {"message": "This plan reached its time limit. Try a shorter, more focused trip."})
+                observation.record(event)
                 yield event
-    except TimeoutError:
-        yield encode("error", {"message": "This plan reached its time limit. Try a shorter, more focused trip."})
+            finally:
+                await events.aclose()
+                observation.finish(budget_metrics())
     finally:
-        await events.aclose()
         end_budget(budget_token)
         await release(lease)
+        if observation is not None:
+            await observation.flush()
 
 
 @app.post("/api/plan")

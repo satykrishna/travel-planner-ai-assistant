@@ -3,6 +3,7 @@ fastapi>=0.115,<1
 uvicorn>=0.30,<1
 httpx>=0.27,<1
 openai>=1.60,<3
+langsmith>=0.14.17,<1
 deepagents==0.7.37
 google-search-results==2.4.2
 langchain==1.5.0
