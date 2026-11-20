@@ -110,17 +110,20 @@ function showRouting(tasks) {
 }
 
 function resetView(sample = false) {
+  $('results').hidden = false;
   savedResult = null; traces = []; $('trace-list').replaceChildren(); $('trace-count').textContent = '0';
   $('agent-pills').replaceChildren(); $('answer').replaceChildren(); $('empty-state').hidden = true;
   $('run-state').hidden = false; $('download-result').hidden = true; $('sample-banner').hidden = !sample;
   $('plan-loading').hidden = false; $('form-error').hidden = true; setTab('plan');
+  $('results').focus({preventScroll: true});
+  $('results').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
 function finish(data) {
   savedResult = {query: $('trip-query').value, ...data, trace: traces};
   showRouting(data.tasks || []); renderAnswer(data.answer);
   $('plan-loading').hidden = true; $('download-result').hidden = false;
-  setActivity($('sample-banner').hidden ? 'Your plan is ready. Make it your own.' : 'An example of what your journey could look like.', 'complete');
+  setActivity($('sample-banner').hidden ? 'Your plan is ready.' : 'Example plan', 'complete');
 }
 
 function eventReceived(item) {
@@ -207,7 +210,7 @@ async function checkStatus() {
     const status = await response.json(); ready = status.ready; $('submit-plan').disabled = !ready;
     $('connection-label').textContent = ready ? 'Your travel team is ready' : 'Explore an example plan';
     $('connection-dot').classList.toggle('ready', ready); $('access-field').hidden = !status.access_required;
-    if (!ready) { $('setup-note').textContent = 'Live planning is not configured yet. You can still explore the example plan.'; $('setup-note').hidden = false; }
+    if (!ready) { $('setup-note').textContent = 'Live planning is unavailable. You can view an example plan below.'; $('setup-note').hidden = false; }
   } catch {
     ready = false; $('submit-plan').disabled = true; $('connection-label').textContent = 'Live planner unavailable';
     $('setup-note').textContent = 'The live planner is unavailable. Try the example below while we reconnect.'; $('setup-note').hidden = false;
