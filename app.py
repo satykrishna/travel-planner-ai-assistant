@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from urllib.parse import urlsplit
 
 from planner.guardrails import (BudgetExceeded, GuardUnavailable, PolicyViolation, guard_input, guard_output, end_budget, public_data, start_budget, validate_untrusted)
-from planner.limits import MAX_REQUEST_SECONDS, quota_ready, release, reserve
+from planner.limits import MAX_REQUEST_SECONDS, release, reserve
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env", override=False)
@@ -42,7 +42,7 @@ def configuration():
     access_required = bool(os.getenv("APP_ACCESS_TOKEN"))
     # A deployed, paid search endpoint must not become open by accident.
     production_unprotected = bool(os.getenv("VERCEL")) and len(os.getenv("APP_ACCESS_TOKEN", "")) < 32
-    return {"ready": not missing and not production_unprotected and quota_ready() and os.getenv("PLANNING_ENABLED", "true").lower() == "true", "access_required": access_required, "trace_enabled": False}
+    return {"ready": not missing and not production_unprotected and os.getenv("PLANNING_ENABLED", "true").lower() == "true", "access_required": access_required, "trace_enabled": False}
 
 
 @app.get("/api/status")
@@ -160,7 +160,7 @@ async def plan_events(request, query, lease):
 async def plan(request: Request, authorization: str | None = Header(default=None)):
     access_token = os.getenv("APP_ACCESS_TOKEN", "")
     if access_token and not hmac.compare_digest((authorization or "").encode(), ("Bearer " + access_token).encode()):
-        raise HTTPException(401, "Enter the app access key to create a plan.")
+        raise HTTPException(401, "This planner requires an access key. Enter the key shared by the host, or explore the example plan.")
     if not configuration()["ready"]:
         raise HTTPException(503, "Live planning is paused while the host configures access and usage protection.")
     origin = request.headers.get("origin")
@@ -176,8 +176,12 @@ async def plan(request: Request, authorization: str | None = Header(default=None
         raw.extend(chunk)
     try:
         body = PlanRequest.model_validate_json(raw)
-    except ValidationError:
-        raise HTTPException(422, "Use a travel request of 5–6000 characters without credentials, code execution, or instruction overrides.") from None
+    except ValidationError as error:
+        for issue in error.errors(include_input=False, include_url=False):
+            policy_error = issue.get("ctx", {}).get("error")
+            if isinstance(policy_error, PolicyViolation):
+                raise HTTPException(422, str(policy_error)) from None
+        raise HTTPException(422, "Please describe a trip in 5–6000 characters. Leave out private details and requests to change the app’s rules or run code. For example: “Plan three days in Lisbon for two adults.”") from None
     lease = await reserve()
     return StreamingResponse(
         plan_events(request, body.query, lease), media_type="application/x-ndjson",

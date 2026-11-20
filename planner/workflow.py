@@ -131,7 +131,7 @@ def get_workflow():
             HumanMessage(content=state["user_query"]),
         ], config=config)
         if not result.travel_allowed:
-            raise PolicyViolation("This app only supports safe travel planning. Please revise your request.")
+            raise PolicyViolation("This planner is for travel research, not unrelated tasks or requests to change its rules. Try: 'Plan three days in Lisbon for two adults.'")
         data = result.model_dump(mode="json")
         for task in data["tasks"]:
             task["user_query"] = state["user_query"]

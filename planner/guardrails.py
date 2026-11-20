@@ -186,7 +186,7 @@ def redact_pii(text):
     return _CARD.sub(lambda m: "[payment card removed]" if card_number(m[0]) else m[0], text)
 
 
-async def moderate_text(text):
+async def moderate_text(text, *, output=False):
     """Content moderation only; no extra generative model or NER calls."""
     try:
         async with AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"],
@@ -196,7 +196,12 @@ async def moderate_text(text):
             if len(moderation.results) != 1:
                 raise GuardUnavailable("Safety checks are temporarily unavailable. Please try again later.")
             if moderation.results[0].flagged:
-                raise PolicyViolation("This content cannot be used for travel planning. Please revise your request.")
+                message = (
+                    "We couldn't safely deliver this plan. Please try a more specific travel request."
+                    if output else
+                    "We can't help with requests that promote harm, exploitation, or abuse. Please ask about destinations, flights, stays, or a safe travel itinerary."
+                )
+                raise PolicyViolation(message)
     except PolicyViolation:
         raise
     except (OpenAIError, httpx.HTTPError, ValueError, IndexError, AttributeError, TypeError):
@@ -213,6 +218,9 @@ async def guard_input(text):
 
 async def guard_output(text):
     text = redact_pii(public_data(text))
-    validate_untrusted(text, max_length=24000)
-    await moderate_text(text)
+    try:
+        validate_untrusted(text, max_length=24000)
+    except PolicyViolation:
+        raise PolicyViolation("We couldn't safely show this result. Please try a shorter, more specific travel request.") from None
+    await moderate_text(text, output=True)
     return text

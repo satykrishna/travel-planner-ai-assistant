@@ -191,12 +191,12 @@ The web runtime uses layered controls, not a claim that prompt injection is solv
 - Request bodies are limited to 24 KiB, query text to 6,000 characters, and unexpected JSON fields are rejected. Cross-site browser submissions are rejected. The access key is checked before reading the body or starting paid work.
 - Vercel sends a restrictive Content Security Policy, framing restrictions, and disabled camera/microphone/geolocation/payment permissions. Model Markdown is rendered as text and a small element allowlist rather than executed as HTML.
 
-### Required shared usage protection on Vercel
+### Usage protection without an extra service
 
-Create a dedicated Upstash Redis database and add `UPSTASH_REDIS_REST_URL` and its **write** `UPSTASH_REDIS_REST_TOKEN` to the Vercel project's server-side environment settings. Use the HTTPS REST endpoint ending in `.upstash.io`. Do not use a read-only token. Redeploy after setting both values.
+No Redis database or additional service account is required. Each worker keeps best-effort in-memory limits: **three plans per fixed UTC minute, 30 per UTC day, and two concurrent plans**. Accepted requests consume allowance even if moderation declines them or a provider fails. Active leases expire after crashes; completed requests release them.
 
-The database maintains atomic, app-wide limits across all users and Vercel instances: **three plans per fixed UTC minute, 30 plans per UTC day, and two concurrent plans**. Accepted requests consume allowance even if moderation declines them or a provider fails. Active leases expire after crashes; completed requests release them. The Redis namespace must be dedicated to this app.
+These counters are **not app-wide**: they reset on restarts and are independent across Vercel instances. They do not establish a reliable daily budget or stop a determined token holder from exploiting serverless scaling. The access key, per-request call/token/time limits, input/output checks, and restricted tools remain enforced independently of these counters. Keep the beta invitation-only and configure provider-side usage controls as appropriate.
 
-Production fails closed: without valid Redis configuration, or if Redis cannot enforce the quotas, live planning is paused. Local development alone can use process-local counters; those are not a production fallback. Set `PLANNING_ENABLED=false` and redeploy for an emergency pause. A production access token must contain at least 32 characters. A shared token can be redistributed; use individual sign-in and per-user quotas for broader public access.
+Set `PLANNING_ENABLED=false` and redeploy for an emergency pause. A production access token must contain at least 32 characters. A shared token can be redistributed; use individual sign-in and shared storage for durable per-user quotas if broader public access is needed later.
 
-Run the offline safety suite with `python -m pytest tests -q` after installing pytest in the development environment. The tests stub external services; they exercise enforcement and failure paths without charging providers. They are not a live adversarial evaluation of the model or the deployed Redis database. Do not share the app publicly until the shared quota store is configured and verified.
+Run the offline safety suite with `python -m pytest tests -q` after installing pytest in the development environment. Tests stub external services and exercise enforcement and failure paths without charging providers. They are not a live adversarial evaluation of the models.

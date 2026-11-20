@@ -122,3 +122,9 @@ def test_context_limit_prevents_model_request():
     with pytest.raises(g.BudgetExceeded):
         asyncio.run(g.invoke_model(model, [SimpleNamespace(content='a' * 50001)]))
     model.ainvoke.assert_not_called()
+
+
+def test_output_moderation_message_does_not_blame_user(monkeypatch):
+    fake_client(monkeypatch, flagged=True)
+    with pytest.raises(g.PolicyViolation, match="couldn't safely deliver"):
+        asyncio.run(g.guard_output('A trip to Paris.'))
