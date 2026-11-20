@@ -172,7 +172,7 @@ Install `requirements.txt`, copy `.env.example` to `.env`, and supply these serv
 - `OPENAI_API_KEY`: model access, created at https://platform.openai.com/api-keys.
 - `TAVILY_API_KEY`: web research, available at https://app.tavily.com.
 - `SERPAPI_API_KEY`: Google Flights and Hotels searches, available at https://serpapi.com/manage-api-key.
-- `APP_ACCESS_TOKEN`: your own private app password. Generate a random value with `openssl rand -hex 32`, save it in `.env`, and enter it in the web interface's access-key field. It is required on Vercel and optional locally.
+- `APP_ACCESS_TOKEN`: your own private app password. Generate a random value with `openssl rand -hex 32`, save it in `.env`, and enter it under Settings → Invitation code in the web interface. It is required on Vercel and optional locally.
 
 Run locally with `uvicorn app:app --reload`, then open http://127.0.0.1:8000.
 

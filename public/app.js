@@ -3,14 +3,15 @@ let controller = null;
 let timer = null;
 let savedResult = null;
 let ready = false;
+let requiresAccess = false;
 let activeQuery = "";
 
 const labels = {
-  starting: 'Preparing your travel team…',
+  starting: 'Finding ideas for your trip…',
   search_agent_node: 'Comparing flights and places to stay…',
-  search_tool_node: 'Flight and hotel search results received.',
+  search_tool_node: 'Taking a closer look at flights and stays…',
   travel_scout_agent_node: 'Researching the places worth your time…',
-  travel_scout_tool_node: 'Local research received. Connecting the details…',
+  travel_scout_tool_node: 'Finding local favorites for your itinerary…',
   synthesizer_node: 'Bringing your journey together…',
 };
 
@@ -83,7 +84,7 @@ function finish(data, remember = true) {
 }
 
 function eventReceived(item) {
-  if (item.event === 'progress') setActivity(labels[item.data.node] || 'Your travel team is working…');
+  if (item.event === 'progress') setActivity(labels[item.data.node] || 'Finding the right options for you…');
   if (item.event === 'result') finish(item.data);
   if (item.event === 'error') throw new Error(item.data.message);
 }
@@ -93,6 +94,10 @@ async function createPlan(event) {
   if (controller || !ready) return;
   const query = buildQuery();
   if (!query) return;
+  if (requiresAccess && !$('access-key').value.trim()) {
+    openSettings('Add the invitation code shared with you to start planning. You can explore the example plan anytime.');
+    return;
+  }
   activeQuery = query;
   if (query.length < 5) { $('form-error').textContent = 'Tell us a little more about the trip you have in mind.'; $('form-error').hidden = false; return; }
   resetView(); controller = new AbortController(); $('submit-plan').disabled = true; $('cancel-plan').hidden = false;
@@ -101,11 +106,14 @@ async function createPlan(event) {
   setActivity(labels.starting);
   try {
     const headers = {'Content-Type': 'application/json'};
-    if ($('access-key').value) headers.Authorization = 'Bearer ' + $('access-key').value;
+    if ($('access-key').value.trim()) headers.Authorization = 'Bearer ' + $('access-key').value.trim();
     const response = await fetch('/api/plan', {method: 'POST', headers, body: JSON.stringify({query}), signal: controller.signal});
     if (!response.ok) {
+      if (response.status === 401) {
+        openSettings('That invitation code wasn’t recognized. Please check the code shared with you and try again.', true);
+      }
       const body = await response.json().catch(() => ({}));
-      throw new Error(typeof body.detail === 'string' ? body.detail : 'The request could not be started. Please check your trip details.');
+      throw new Error(response.status === 401 ? 'Please check your invitation code in Settings, then try again.' : typeof body.detail === 'string' ? body.detail : 'We couldn’t start your plan. Please check your trip details and try again.');
     }
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
     while (true) {
@@ -159,8 +167,8 @@ async function checkStatus() {
   try {
     const response = await fetch('/api/status'); if (!response.ok) throw new Error('Unavailable');
     const status = await response.json(); ready = status.ready; $('submit-plan').disabled = !ready;
-    $('connection-label').textContent = ready ? 'Your travel team is ready' : 'Explore an example plan';
-    $('connection-dot').classList.toggle('ready', ready); $('access-field').hidden = !status.access_required;
+    $('connection-label').textContent = ready ? 'Ready when you are' : 'Explore an example plan';
+    $('connection-dot').classList.toggle('ready', ready); requiresAccess = Boolean(status.access_required); $('access-field').hidden = !requiresAccess;
     if (!ready) { $('setup-note').textContent = 'Live planning is unavailable. You can view an example plan below.'; $('setup-note').hidden = false; }
   } catch {
     ready = false; $('submit-plan').disabled = true; $('connection-label').textContent = 'Live planner unavailable';
@@ -237,16 +245,40 @@ function renderRecentPlans() {
 }
 function updateProfile() {
   const name = $('traveler-name').value.trim();
-  $('greeting').textContent = name ? 'WELCOME BACK, ' + name.toUpperCase() : 'A LITTLE INSPIRATION, JUST FOR YOU';
-  $('profile-label').textContent = name ? name + '’s travel space' : 'Your travel space';
-  $('profile-initial').textContent = name ? Array.from(name)[0].toUpperCase() : 'Y';
+  $('greeting').textContent = name ? 'Welcome back, ' + name + '.' : 'A little inspiration for your next trip';
+  $('profile-label').textContent = name ? name + '’s preferences' : 'Make this space yours';
+  $('profile-initial').textContent = name ? Array.from(name)[0].toUpperCase() : '⚙';
 }
+function openSettings(message, invalid = false) {
+  $('settings-panel').open = true;
+  $('settings-message').textContent = message;
+  $('access-key').setAttribute('aria-invalid', String(invalid));
+  $('access-key').focus({preventScroll: true});
+  $('access-key').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
 function initializeWorkspace() {
-  const profile = readLocal('travel-planner-profile-v1', {});
+  $('settings-done').addEventListener('click', () => {
+    $('settings-panel').open = false;
+    $('destination').focus({preventScroll: true});
+    $('destination').scrollIntoView({behavior: 'smooth', block: 'center'});
+  });
+  $('access-key').addEventListener('input', () => {
+    $('clear-access-key').disabled = !$('access-key').value;
+    $('access-key').setAttribute('aria-invalid', 'false');
+    $('settings-message').textContent = $('access-key').value.trim() ? 'Your code will be checked when you create a plan.' : '';
+  });
+  $('clear-access-key').addEventListener('click', () => {
+    $('access-key').value = '';
+    $('access-key').dispatchEvent(new Event('input'));
+    $('settings-message').textContent = 'Code cleared. Add it again whenever you’d like to plan a trip.';
+    $('access-key').focus();
+  });
+  const profile = readLocal('travel-planner-profile-v1', {}) || {};
   if (typeof profile.name === 'string') $('traveler-name').value = profile.name.slice(0,40);
   updateProfile();
   $('traveler-name').addEventListener('input', () => { updateProfile(); writeLocal('travel-planner-profile-v1',{name:$('traveler-name').value}); });
-  const draft = readLocal('travel-planner-draft-v1', {});
+  const draft = readLocal('travel-planner-draft-v1', {}) || {};
   for (const id of draftFields) {
     if (typeof draft[id] === 'string') $(id).value = draft[id];
     $(id).addEventListener('input',persistDraft); $(id).addEventListener('change',persistDraft);
