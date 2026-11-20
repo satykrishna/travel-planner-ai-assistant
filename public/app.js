@@ -4,6 +4,7 @@ let timer = null;
 let savedResult = null;
 let traces = [];
 let ready = false;
+let activeQuery = "";
 
 const labels = {
   starting: 'Preparing your travel team…',
@@ -119,8 +120,9 @@ function resetView(sample = false) {
   $('results').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
-function finish(data) {
-  savedResult = {query: $('trip-query').value, ...data, trace: traces};
+function finish(data, remember = true) {
+  savedResult = {...data, query: activeQuery || $('trip-query').value, trace: traces};
+  if (remember && $('sample-banner').hidden) rememberPlan(savedResult);
   showRouting(data.tasks || []); renderAnswer(data.answer);
   $('plan-loading').hidden = true; $('download-result').hidden = false;
   setActivity($('sample-banner').hidden ? 'Your plan is ready.' : 'Example plan', 'complete');
@@ -137,7 +139,9 @@ function eventReceived(item) {
 async function createPlan(event) {
   event.preventDefault();
   if (controller || !ready) return;
-  const query = $('trip-query').value.trim();
+  const query = buildQuery();
+  if (!query) return;
+  activeQuery = query;
   if (query.length < 5) { $('form-error').textContent = 'Tell us a little more about the trip you have in mind.'; $('form-error').hidden = false; return; }
   resetView(); controller = new AbortController(); $('submit-plan').disabled = true; $('cancel-plan').hidden = false;
   $('preview-sample').disabled = true; $('elapsed').textContent = '0s';
@@ -196,7 +200,7 @@ $('preview-sample').addEventListener('click', async () => {
     const response = await fetch('/sample.json'); if (!response.ok) throw new Error('Example unavailable');
     const sample = await response.json(); resetView(true); $('trip-query').value = sample.query; $('trip-query').dispatchEvent(new Event('input'));
     for (const message of sample.trace) addTrace(message);
-    finish(sample); $('elapsed').textContent = '';
+    activeQuery = sample.query; finish(sample); $('elapsed').textContent = '';
   } catch { $('form-error').textContent = 'The example could not be loaded. Please refresh and try again.'; $('form-error').hidden = false; }
 });
 $('download-result').addEventListener('click', () => {
@@ -217,3 +221,108 @@ async function checkStatus() {
   }
 }
 checkStatus();
+
+function buildQuery() {
+  const destination = $('destination').value.trim();
+  const notes = $('trip-query').value.trim();
+  const fail = (message, field) => { $('form-error').textContent = message; $('form-error').hidden = false; $(field).focus(); return null; };
+  if (!destination && notes.length < 5) return fail('Choose a destination or tell us a little about the trip you have in mind.', 'destination');
+  const start = $('depart-date').value, end = $('return-date').value;
+  if (start && end && end < start) return fail('Your return date should be on or after your departure.', 'return-date');
+  if ((start && start < localToday()) || (end && end < localToday())) return fail('Choose upcoming dates for your trip.', start && start < localToday() ? 'depart-date' : 'return-date');
+  const parts = [];
+  if (destination) parts.push('Plan a trip to ' + destination + '.');
+  if ($('origin').value.trim()) parts.push('Departing from ' + $('origin').value.trim() + '. Include flight options.');
+  if (start) parts.push('Departure date: ' + start + '.');
+  if (end) parts.push('Return date: ' + end + '.');
+  parts.push('Travelers: ' + $('travelers').value + ' adults.');
+  if ($('budget').value.trim()) parts.push('Total trip budget: ' + $('budget').value.trim() + '.');
+  const interests = [...document.querySelectorAll('[data-interest][aria-pressed="true"]')].map(el => el.dataset.interest);
+  if (interests.length) parts.push('Interests: ' + interests.join(', ') + '.');
+  if (notes) parts.push(notes);
+  parts.push('Include places to stay and a practical itinerary. Clearly identify estimates and ask for essential missing details. Do not book anything.');
+  const query = parts.join('\n');
+  if (query.length > 6000) return fail('Please shorten your trip notes a little before planning.', 'trip-query');
+  return query;
+}
+function localToday() {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth()+1).padStart(2,'0'), String(now.getDate()).padStart(2,'0')].join('-');
+}
+const draftFields = ['destination','origin','depart-date','return-date','travelers','budget','trip-query'];
+let recentPlans = [];
+function readLocal(key, fallback) {
+  try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; }
+}
+function writeLocal(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch { $('storage-note').textContent = 'Browser storage is unavailable. Export plans you want to keep.'; $('storage-note').hidden = false; return false; }
+}
+function captureDraft() {
+  return Object.fromEntries(draftFields.map(id => [id, $(id).value]));
+}
+function persistDraft() {
+  writeLocal('travel-planner-draft-v1', captureDraft());
+}
+function rememberPlan(plan) {
+  const title = $('destination').value.trim() || plan.query.split('\n')[0].slice(0,80);
+  const item = {title, query: plan.query, answer: plan.answer, tasks: plan.tasks || [], date: new Date().toISOString(), draft: captureDraft()};
+  recentPlans = [item, ...recentPlans.filter(p => p.query !== item.query)].slice(0,5);
+  writeLocal('travel-planner-plans-v1', recentPlans); renderRecentPlans();
+}
+function renderRecentPlans() {
+  $('saved-count').textContent = String(recentPlans.length);
+  if (!recentPlans.length) return;
+  $('recent-plans').replaceChildren();
+  for (const item of recentPlans) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'recent-card';
+    const icon = document.createElement('span'); icon.className = 'recent-icon'; icon.textContent = '⌖'; icon.setAttribute('aria-hidden','true');
+    const title = document.createElement('strong'); title.textContent = item.title;
+    const date = document.createElement('p'); date.textContent = new Date(item.date).toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' · Open plan';
+    button.append(icon,title,date);
+    button.addEventListener('click', () => {
+      if (controller) return;
+      if (item.draft) for (const id of draftFields) if (typeof item.draft[id] === 'string') $(id).value = item.draft[id];
+      activeQuery = item.query; resetView(); finish(item, false); $('elapsed').textContent = ''; persistDraft();
+    });
+    $('recent-plans').append(button);
+  }
+}
+function updateProfile() {
+  const name = $('traveler-name').value.trim();
+  $('greeting').textContent = name ? 'WELCOME BACK, ' + name.toUpperCase() : 'A LITTLE INSPIRATION, JUST FOR YOU';
+  $('profile-label').textContent = name ? name + '’s travel space' : 'Your travel space';
+  $('profile-initial').textContent = name ? Array.from(name)[0].toUpperCase() : 'Y';
+}
+function initializeWorkspace() {
+  const profile = readLocal('travel-planner-profile-v1', {});
+  if (typeof profile.name === 'string') $('traveler-name').value = profile.name.slice(0,40);
+  updateProfile();
+  $('traveler-name').addEventListener('input', () => { updateProfile(); writeLocal('travel-planner-profile-v1',{name:$('traveler-name').value}); });
+  const draft = readLocal('travel-planner-draft-v1', {});
+  for (const id of draftFields) {
+    if (typeof draft[id] === 'string') $(id).value = draft[id];
+    $(id).addEventListener('input',persistDraft); $(id).addEventListener('change',persistDraft);
+  }
+  $('depart-date').min = localToday(); $('return-date').min = localToday();
+  $('depart-date').addEventListener('change', () => { $('return-date').min = $('depart-date').value || localToday(); });
+  const interests = readLocal('travel-planner-interests-v1', []);
+  for (const button of document.querySelectorAll('[data-interest]')) {
+    button.setAttribute('aria-pressed', String(Array.isArray(interests) && interests.includes(button.dataset.interest)));
+    button.addEventListener('click', () => {
+      button.setAttribute('aria-pressed',String(button.getAttribute('aria-pressed') !== 'true'));
+      writeLocal('travel-planner-interests-v1',[...document.querySelectorAll('[data-interest][aria-pressed="true"]')].map(el=>el.dataset.interest));
+    });
+  }
+  const stored = readLocal('travel-planner-plans-v1', []);
+  recentPlans = Array.isArray(stored) ? stored.filter(p=>p && typeof p.query === 'string' && typeof p.answer === 'string' && typeof p.title === 'string').slice(0,5) : [];
+  renderRecentPlans();
+  $('new-trip').addEventListener('click', () => {
+    if (controller) { $('cancel-plan').focus(); return; }
+    for (const id of draftFields) if (!['origin','travelers','budget'].includes(id)) $(id).value = '';
+    $('return-date').min = localToday(); $('results').hidden = true; $('form-error').hidden = true; persistDraft();
+    $('destination').scrollIntoView({behavior:'smooth',block:'center'}); $('destination').focus({preventScroll:true});
+  });
+}
+
+initializeWorkspace();

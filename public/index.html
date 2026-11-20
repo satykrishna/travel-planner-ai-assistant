@@ -11,31 +11,22 @@
 </head>
 <body>
   <a class="skip" href="#trip-query">Skip to trip planner</a>
-  <div class="site-shell">
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="Travel Planner AI Assistant home">
-        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M12 28l7-18 10 3-7 18z"/><path d="M19 10l3 21M12 28l17-15"/></svg></span>
-        <span>Travel Planner</span>
-      </a>
-      <div class="header-right"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Checking availability</span></div>
-    </header>
+  <div class="app-layout"><aside class="sidebar" aria-label="Workspace navigation"><a class="brand" href="/"><span class="brand-mark">✦</span> Travel Planner</a><span class="workspace-label">YOUR WORKSPACE</span><button type="button" class="nav-item active" id="new-trip">＋ <span>Plan a trip</span></button><a class="nav-item" href="#saved-trips">▤ <span>My plans</span><span id="saved-count" class="count">0</span></a><div class="sidebar-note"><span class="note-icon">⌁</span><strong>A little more you.<br>A lot less planning.</strong><p>Your pace. Your interests.<br>Your next great escape.</p></div><details class="profile"><summary><span class="avatar" id="profile-initial">Y</span><span><strong id="profile-label">Your travel space</strong><small>Personalize your experience</small></span></summary><div class="profile-fields"><label for="traveler-name">What should we call you?</label><input id="traveler-name" maxlength="40" placeholder="Your first name" autocomplete="given-name"><p>Preferences and plans stay in this browser.</p></div></details></aside><div class="site-shell">
+    <header class="site-header"><div class="breadcrumb">Your workspace <span>/</span> <strong>Plan a trip</strong></div><div class="header-right"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Connecting…</span></div></header>
 
     <main>
-      <section class="hero" aria-labelledby="hero-title"><h1 id="hero-title">Where would you like to go?</h1><p>Find flights, places to stay, and things to do in one plan.</p></section>
+      <section class="hero" aria-labelledby="hero-title"><div class="hero-copy"><p class="eyebrow" id="greeting">A LITTLE INSPIRATION, JUST FOR YOU</p><h1 id="hero-title">Your next great trip.<br><span>Made for you.</span></h1><p>Less time searching. More time looking forward to it.</p><div class="hero-tags"><span>Flights & stays</span><span>Local favorites</span><span>Your kind of itinerary</span></div></div><div class="trip-art" aria-hidden="true"><div class="art-sun"></div><div class="art-mountain back"></div><div class="art-mountain front"></div><div class="art-water"></div><div class="art-caption"><span>YOUR NEXT CHAPTER</span><strong>Somewhere new.</strong></div><span class="art-stamp">✦<br>GO EXPLORE</span></div></section>
 
       <div class="workspace">
         <section class="request-card" aria-labelledby="request-title">
 
-          <h2 id="request-title">Plan your trip</h2>
+          <div class="card-heading"><div><p class="eyebrow">LET’S MAKE IT HAPPEN</p><h2 id="request-title">What’s your next destination?</h2></div><span class="step-label">Your trip, your way</span></div>
 
           <form id="plan-form">
-            <label for="trip-query">Where, when, and who’s coming?</label>
-            <textarea id="trip-query" name="query" rows="5" minlength="5" maxlength="6000" required placeholder="e.g. Five days in Japan for two, departing Toronto in April. We love food and quiet neighborhoods. Budget: $3,000."></textarea>
-            <div class="input-meta"><span>Add your dates, budget, and departure city if you know them.</span><span id="char-count">0 / 6000</span></div>
-            <details class="examples"><summary>Need inspiration?</summary>
+            <div class="form-grid"><div class="destination-field"><label for="destination">Where to?</label><input id="destination" placeholder="City, country, or a little inspiration" maxlength="160" autocomplete="off"></div><div><label for="origin">Flying from <span class="optional">optional</span></label><input id="origin" placeholder="City or airport" maxlength="120" autocomplete="off"></div><div><label for="depart-date">Departure</label><input id="depart-date" type="date"></div><div><label for="return-date">Return</label><input id="return-date" type="date"></div><div><label for="travelers">Travelers</label><select id="travelers"><option value="1">1 adult</option><option value="2" selected>2 adults</option><option value="3">3 adults</option><option value="4">4 adults</option><option value="5">5 adults</option><option value="6">6 adults</option></select></div><div><label for="budget">Total budget <span class="optional">optional</span></label><input id="budget" placeholder="e.g. CAD 3,000" maxlength="80"></div></div><fieldset class="interest-field"><legend>What makes a trip feel like you?</legend><div class="interest-chips"><button type="button" data-interest="Food & culture" aria-pressed="false">Food & culture</button><button type="button" data-interest="Nature & outdoors" aria-pressed="false">Nature & outdoors</button><button type="button" data-interest="Art & history" aria-pressed="false">Art & history</button><button type="button" data-interest="Rest & relaxation" aria-pressed="false">Rest & relaxation</button><button type="button" data-interest="Adventure" aria-pressed="false">Adventure</button></div></fieldset><div class="notes-field"><label for="trip-query">Anything else? <span class="optional">optional</span></label><textarea id="trip-query" name="query" rows="3" maxlength="6000" placeholder="A slower pace, a special occasion, a place you’ve always wanted to see…"></textarea><span id="char-count" hidden></span></div><details class="examples"><summary>Need inspiration?</summary>
             <div class="chips"><button type="button" data-starter="city">City break</button><button type="button" data-starter="flights">Flights & hotels</button><button type="button" data-starter="food">Food & culture</button></div></details>
             <div id="access-field" hidden><label for="access-key">App access key</label><input id="access-key" type="password" autocomplete="off" placeholder="Enter your shared access key"><p class="field-note">Provided by the person hosting this planner.</p></div>
-            <button class="primary" id="submit-plan" type="submit">Plan my trip</button>
+            <div class="form-actions"><p>Built around what matters to you.</p><button class="primary" id="submit-plan" type="submit" disabled>Create my travel plan</button></div>
             <button class="cancel" id="cancel-plan" type="button" hidden>Stop planning</button>
             <p id="setup-note" class="setup-note" hidden></p>
             <p id="form-error" class="form-error" role="alert" hidden></p>
@@ -43,7 +34,7 @@
         </section>
 
         <section class="result-panel" id="results" hidden tabindex="-1" aria-labelledby="result-title">
-          <div class="result-heading"><div><h2 id="result-title">Your travel plan</h2></div><button id="download-result" class="icon-button" type="button" hidden aria-label="Download plan and execution trace as JSON">Save plan</button></div>
+          <div class="result-heading"><div><h2 id="result-title">Your travel plan</h2></div><button id="download-result" class="icon-button" type="button" hidden aria-label="Download plan and execution trace as JSON">Export plan</button></div>
 
           <div id="empty-state" hidden></div>
           <div id="run-state" hidden>
@@ -57,8 +48,8 @@
         </section>
       </div>
 
-      <footer class="site-footer"><button type="button" id="preview-sample" class="text-button">View an example plan</button><p>Check prices and availability before booking.</p></footer>
+      <section class="saved-section" id="saved-trips" aria-labelledby="saved-title"><div class="saved-heading"><div><p class="eyebrow">YOUR TRAVEL COLLECTION</p><h2 id="saved-title">Pick up where you left off</h2></div><span class="local-label">Saved on this device</span></div><div id="recent-plans" class="recent-plans"><div class="saved-empty"><span>▤</span><div><strong>Your next adventure starts here.</strong><p>Your last five completed plans will appear here.</p></div></div></div><p id="storage-note" class="field-note" hidden></p></section><footer class="site-footer"><button type="button" id="preview-sample" class="text-button">View an example plan</button><p>Check prices and availability before booking.</p></footer>
     </main>
-  </div>
+  </div></div>
 </body>
 </html>
