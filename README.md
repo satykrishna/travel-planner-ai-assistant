@@ -2,7 +2,7 @@
 
 A notebook-first, multi-agent travel planner built with LangGraph, LangChain, OpenAI, Tavily, and SerpAPI. It classifies travel requests, dispatches flight/hotel and destination-research specialists, executes structured tool calls in normal Python graph nodes, and synthesizes their findings.
 
-The source is [Multi_Agent_Travel_Planner.ipynb](Multi_Agent_Travel_Planner.ipynb). This repository contains the notebook and its setup files, not the separate travel-agent application.
+The source is [Multi_Agent_Travel_Planner.ipynb](Multi_Agent_Travel_Planner.ipynb). The repository also includes a FastAPI web app with a browser interface and Vercel configuration.
 
 ## What it does
 
@@ -163,6 +163,17 @@ python validate_notebook.py
 
 The notebook was copied through PyCharm's notebook model; the original working notebook and its outputs are not modified. No API keys are included.
 
-## Deployment status
+## Web app and Vercel deployment
 
-This repository is the notebook project. It is not yet a Vercel deployment. Vercel hosting requires extracting the runtime workflow into importable Python, providing an HTTP endpoint and UI, and configuring server-side environment variables and execution limits. Notebook display, package-install, and `input()` cells are development conveniences and should not run in a serverless request.
+`app.py` serves the FastAPI endpoints and the interface in `public/`. The runtime workflow lives in `planner/`; `vercel.json` configures deployment. Deployment has not been verified.
+
+Install `requirements.txt`, copy `.env.example` to `.env`, and supply these server-side variables:
+
+- `OPENAI_API_KEY`: model access, created at https://platform.openai.com/api-keys.
+- `TAVILY_API_KEY`: web research, available at https://app.tavily.com.
+- `SERPAPI_API_KEY`: Google Flights and Hotels searches, available at https://serpapi.com/manage-api-key.
+- `APP_ACCESS_TOKEN`: your own private app password. Generate a random value with `openssl rand -hex 32`, save it in `.env`, and enter it in the web interface's access-key field. It is required on Vercel and optional locally.
+
+Run locally with `uvicorn app:app --reload`, then open http://127.0.0.1:8000.
+
+For Vercel, import this repository and set all four variables in the project's environment settings before deploying. Apply them to each environment where live planning should work. Redeploy after changing deployment variables. Keep provider keys on the server and never commit `.env` or paste provider keys into the web interface.

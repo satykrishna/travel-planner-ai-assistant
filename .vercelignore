@@ -1,0 +1,13 @@
+.env
+.env.*
+.venv
+venv
+.git
+.ipynb_checkpoints
+.idea
+*.ipynb
+tests
+output
+.pytest_cache
+.ruff_cache
+__pycache__

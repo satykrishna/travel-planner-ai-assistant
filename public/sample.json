@@ -1,0 +1,12 @@
+{
+  "sample": true,
+  "query": "A relaxed three-day Lisbon escape for two adults, with walkable neighborhoods, local food, and time to wander.",
+  "tasks": [{"target_agent": "travel_scout_agent", "focus": "Create a relaxed sample itinerary with local discoveries."}],
+  "findings": [{"target_agent": "travel_scout_agent", "focus": "Lisbon city escape", "answer": "An illustrative neighborhood-led plan. Exact opening hours, availability, and travel costs have not been checked."}],
+  "date_checks": {"option_checks": [], "warnings": []},
+  "answer": "# Three days, a little Lisbon magic\n\nThis is an illustrative preview, not a live researched plan. No flights, hotels, or prices have been searched.\n\n## Day 1 · Start slowly\n\nSettle in, then get your bearings with a gentle walk through Baixa and Chiado. Leave room for a long café stop and an unhurried dinner.\n\n- Choose accommodation that works for your walking preferences.\n- Keep the arrival day light until your flight and check-in times are known.\n\n## Day 2 · Follow your curiosity\n\nExplore Alfama's lanes at your own pace, taking breaks along the way. Make the evening about a neighborhood dinner rather than a packed schedule.\n\n## Day 3 · One more discovery\n\nChoose a single neighborhood or museum that interests you, then leave a generous buffer before your return journey.\n\n## Make it your own\n\nShare your travel dates, departure city, budget, and mobility preferences. The live planner can then research current options and connect the details.\n\n**Before booking:** confirm opening hours, accommodation dates, airport transfers, and quoted prices with the providers.",
+  "trace": [
+    {"agent": "travel_scout_agent", "type": "HumanMessage", "content": "Create a relaxed three-day Lisbon plan for two adults.", "tool_calls": []},
+    {"agent": "travel_scout_agent", "type": "AIMessage", "content": "This preview illustrates a final response. No live tool calls were made.", "tool_calls": []}
+  ]
+}

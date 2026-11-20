@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Bring flights, stays, and local discoveries together in one thoughtful travel plan.">
+  <title>Travel Planner AI Assistant</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%231c3e44'/%3E%3Cpath d='M12 27l7-16 10 3-7 15z' fill='%23e4ad75'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#trip-query">Skip to trip planner</a>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Travel Planner AI Assistant home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M12 28l7-18 10 3-7 18z"/><path d="M19 10l3 21M12 28l17-15"/></svg></span>
+        <span>Travel Planner<span class="brand-small">AI ASSISTANT</span></span>
+      </a>
+      <div class="header-right"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Checking availability</span></div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span> A LITTLE LESS PLANNING. A LOT MORE POSSIBILITY.</div>
+          <h1 id="hero-title">Your next chapter<br>starts <em>somewhere.</em></h1>
+          <p class="hero-description">Flights, a place to stay, and the places worth getting lost in.<br class="desktop-break"> Bring it all together in a plan that feels like you.</p>
+        </div>
+        <div class="postcard" aria-hidden="true">
+          <div class="postcard-top"><span>THE WORLD IS CALLING</span><span>↗</span></div>
+          <svg class="journey-map" viewBox="0 0 330 160"><path class="contour" d="M-10 130Q40 8 120 83T330 28M-10 145Q40 24 120 98T340 44M-10 160Q40 40 120 114T350 60M-10 175Q40 56 120 130T360 76"/><path class="route" d="M50 111C90 110 90 33 161 51S209 142 279 74"/><circle cx="50" cy="111" r="6"/><circle cx="279" cy="74" r="6"/><path class="plane" d="M155 51l15-16-1 12 12 6-5 4-10-2-5 8-4-1 3-10z"/></svg>
+          <div class="postcard-bottom"><span>A good journey begins<br>with a little curiosity.</span><span class="postage">EXPLORE<br>THE WORLD</span></div>
+        </div>
+      </section>
+
+      <div class="workspace">
+        <section class="request-card" aria-labelledby="request-title">
+          <div class="section-kicker">01 / THE POSSIBILITIES</div>
+          <h2 id="request-title">What do you have in mind?</h2>
+          <p class="muted">A destination, a date, or just a feeling. Start there.</p>
+          <form id="plan-form">
+            <label for="trip-query">Tell us about your trip</label>
+            <textarea id="trip-query" name="query" rows="8" minlength="5" maxlength="6000" required placeholder="A week in Japan for two, with great food, quiet neighborhoods, and a little adventure. We'd love flight and hotel options too…"></textarea>
+            <div class="input-meta"><span>Dates, departure city & travelers help us be specific.</span><span id="char-count">0 / 6000</span></div>
+            <div class="inspiration-label">NEED A STARTING POINT?</div>
+            <div class="chips"><button type="button" data-starter="city">A city escape ↗</button><button type="button" data-starter="flights">Flights + hotels ↗</button><button type="button" data-starter="food">Food & culture ↗</button></div>
+            <div id="access-field" hidden><label for="access-key">App access key</label><input id="access-key" type="password" autocomplete="off" placeholder="Enter your shared access key"><p class="field-note">Provided by the person hosting this planner.</p></div>
+            <button class="primary" id="submit-plan" type="submit">Create my travel plan <span aria-hidden="true">↗</span></button>
+            <button class="cancel" id="cancel-plan" type="button" hidden>Stop planning</button>
+            <p id="setup-note" class="setup-note" hidden></p>
+            <p id="form-error" class="form-error" role="alert" hidden></p>
+          </form>
+          <div class="request-footer"><span aria-hidden="true">✧</span> Thoughtfully researched. Yours to make your own.</div>
+        </section>
+
+        <section class="result-panel" aria-labelledby="result-title">
+          <div class="result-heading"><div><div class="section-kicker">02 / THE JOURNEY</div><h2 id="result-title">A plan with a point of view.</h2></div><button id="download-result" class="icon-button" type="button" hidden aria-label="Download plan and execution trace as JSON">↓ <span>Save</span></button></div>
+
+          <div id="empty-state" class="empty-state">
+            <div class="empty-illustration" aria-hidden="true"><svg viewBox="0 0 200 150"><rect x="56" y="30" width="100" height="92" rx="5" transform="rotate(9 100 70)"/><rect x="39" y="25" width="100" height="92" rx="5" transform="rotate(-8 100 70)"/><path d="M58 91l20-31 17 19 13-10 17 29"/><circle cx="109" cy="46" r="8"/><path d="M62 105l56-8"/></svg></div>
+            <h3>Somewhere wonderful awaits.</h3>
+            <p>Tell us what you're imagining. Your travel team will connect the details—from getting there to making the most of every day.</p>
+            <button type="button" id="preview-sample" class="text-button">Take a look at an example <span aria-hidden="true">→</span></button>
+            <div class="capabilities"><span>✈ Flights & stays</span><span>⌖ Local discoveries</span><span>✧ A thoughtful itinerary</span></div>
+          </div>
+
+          <div id="run-state" hidden>
+            <div class="activity" id="activity" role="status" aria-live="polite"><span class="spinner" id="spinner"></span><span id="activity-label">Preparing your travel team…</span><span id="elapsed"></span></div>
+            <div class="sample-banner" id="sample-banner" hidden>EXAMPLE PREVIEW · Illustrative content, not live search results</div>
+            <div class="agent-pills" id="agent-pills"></div>
+            <div class="tabs" role="tablist" aria-label="Plan views"><button type="button" role="tab" id="plan-tab" aria-controls="plan-view" aria-selected="true">Your plan</button><button type="button" role="tab" id="trace-tab" aria-controls="trace-view" aria-selected="false">How it came together <span id="trace-count">0</span></button></div>
+            <div id="plan-view" role="tabpanel" aria-labelledby="plan-tab"><div id="plan-loading" class="plan-loading"><span class="loading-line"></span><span class="loading-line"></span><span class="loading-line"></span><p>Looking at the options. Connecting the details.</p></div><article id="answer" class="answer"></article></div>
+            <div id="trace-view" role="tabpanel" aria-labelledby="trace-tab" hidden><p class="trace-note">Follow each agent's messages and tool calls. Agents may work in parallel; this is the order updates reached your browser.</p><div id="trace-list"></div></div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="site-footer"><span>Made for the journey, not just the destination.</span><span>Research, not reservations. Confirm prices and availability before booking.</span></footer>
+    </main>
+  </div>
+</body>
+</html>

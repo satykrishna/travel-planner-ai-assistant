@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "functions": {
+    "app.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{*.ipynb,requirements-notebook.txt,requirements-dev.txt,validate_notebook.py,tests/**,output/**,.pytest_cache/**,.ruff_cache/**}"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {"key": "X-Content-Type-Options", "value": "nosniff"},
+        {"key": "Referrer-Policy", "value": "strict-origin-when-cross-origin"}
+      ]
+    }
+  ]
+}
